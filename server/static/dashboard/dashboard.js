@@ -33,6 +33,7 @@
     imageFlow: [],
     streamState: 'connecting',
     errorMessage: '',
+    pollTimer: null,
   }
 
   function getJson(path) {
@@ -79,22 +80,52 @@
         applySnapshot(JSON.parse(event.data))
         state.streamState = 'live'
         state.errorMessage = ''
+        stopPolling()
         render()
       } catch (error) {
-        state.streamState = 'degraded'
-        state.errorMessage = String(error)
-        render()
+        degradeToPolling(String(error))
       }
     }
     socket.onerror = () => {
-      state.streamState = 'degraded'
-      state.errorMessage = 'WebSocket stream unavailable. Showing latest HTTP snapshot.'
-      render()
+      degradeToPolling('WebSocket stream unavailable. Falling back to HTTP polling.')
     }
     socket.onclose = () => {
-      state.streamState = 'degraded'
-      render()
+      if (state.streamState !== 'live') {
+        degradeToPolling('WebSocket stream closed. Falling back to HTTP polling.')
+      }
     }
+  }
+
+  function degradeToPolling(message) {
+    state.streamState = 'polling'
+    state.errorMessage = message
+    startPolling()
+    render()
+  }
+
+  function startPolling() {
+    if (state.pollTimer !== null) {
+      return
+    }
+    state.pollTimer = window.setInterval(() => {
+      fetchSnapshot()
+        .then((snapshot) => {
+          applySnapshot(snapshot)
+          render()
+        })
+        .catch((error) => {
+          state.errorMessage = error.message
+          render()
+        })
+    }, 3000)
+  }
+
+  function stopPolling() {
+    if (state.pollTimer === null) {
+      return
+    }
+    window.clearInterval(state.pollTimer)
+    state.pollTimer = null
   }
 
   function applySnapshot(snapshot) {
