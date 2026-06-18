@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from server.config import load_server_config
+from server.queue import FileQueue
 from server.routes import configure_routes, router
 from server.storage import UploadStorage
 
@@ -17,8 +18,9 @@ def create_app() -> FastAPI:
         config_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     config = load_server_config(config_path)
-    storage = UploadStorage(config)
-    configure_routes(config, storage)
+    queue = FileQueue(config)
+    storage = UploadStorage(config, queue)
+    configure_routes(config, storage, queue)
 
     app = FastAPI(title="Machine Image Uploader Server", version="0.1.0")
     app.include_router(router)

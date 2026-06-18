@@ -3,7 +3,11 @@
   "port": 8000,
   "storage_root": "runtime/server-storage",
   "temp_root": "runtime/server-temp",
+  "queue_root": "runtime/server-queue",
+  "processed_root": "runtime/server-storage/processed",
+  "failed_root": "runtime/server-storage/failed",
   "metadata_path": "runtime/server-metadata/upload-events.jsonl",
+  "worker_state_path": "runtime/server-metadata/worker-state.json",
   "machines": {
     "MC01": {
       "token": "replace-me"

@@ -111,6 +111,20 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 
 ---
 
+## Frontend
+
+- Dashboard app: `dashboard/`
+
+### Run dashboard locally
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+---
+
 ## Performance Target
 
 | Metric | Target |

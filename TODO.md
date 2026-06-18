@@ -46,7 +46,7 @@
 - [x] Track recent upload state for monitoring APIs
 - [x] Return ACK only after raw file and metadata are stored
 - [x] Improve WebSocket live endpoint to push snapshots periodically
-- [ ] Prepare queue handoff boundary in saved metadata
+- [x] Prepare queue handoff boundary in saved metadata
 
 ### File Design
 
@@ -65,6 +65,73 @@
 
 ## Next After Phase 2
 
-- [ ] Create `worker/` package and queue message contract
-- [ ] Replace in-memory queue placeholders with Redis-backed pipeline
+## Phase 3: Queue and Worker Pipeline
+
+### Tasks
+
+- [x] Add file-backed queue contract for pending, processing, completed, and failed jobs
+- [x] Enqueue upload metadata immediately after raw persistence
+- [x] Add worker runtime state file and heartbeat
+- [x] Build worker loop that claims jobs from queue
+- [x] Extract uploaded zip into temp workspace
+- [x] Validate extracted image files and manifest fields
+- [x] Write processed files into `/processed/<machine>/<YYYY>/<MM>/<DD>/`
+- [x] Record worker completion and failure metadata
+- [x] Move failed jobs into investigation path with retry tracking
+
+### File Design
+
+- `server/queue.py`
+  - File-backed queue message contract and directory transitions
+- `worker/service.py`
+  - Worker poll loop, queue claiming, retries, and state heartbeat
+- `worker/processor.py`
+  - Zip extraction, file validation, and processed output writing
+- `worker/main.py`
+  - Worker bootstrap using shared server config
+
+## Phase 4: Monitoring and Dashboard Backend
+
+### Tasks
+
+- [x] Replace purely random monitoring data with runtime-derived snapshots
+- [x] Compute machine status from actual upload events and queue depth
+- [x] Compute queue metrics from queue directories and worker state
+- [x] Compute storage usage from real filesystem paths
+- [x] Compute ingest and processing throughput from recent metadata
+- [x] Push richer WebSocket snapshots including worker state
+- [x] Add alert rules for offline machine, queue backlog, worker stale heartbeat, and disk pressure
+
+### File Design
+
+- `server/store.py`
+  - Runtime snapshot builder from upload metadata, queue stats, and worker state
+- `worker/state.py`
+  - Worker heartbeat and performance state persistence
+- `server/routes.py`
+  - Monitoring APIs and WebSocket payload assembly
+
+## Phase 4: Dashboard Frontend
+
+### Tasks
+
+- [x] Add dashboard frontend scaffold
+- [x] Wire dashboard homepage to monitoring HTTP APIs
+- [x] Wire dashboard homepage to `/ws/live` stream
+- [x] Implement top status bar, machine grid, metrics, queue, storage, worker, and alerts panels
+- [x] Add drill-down pages for image flow and machine details
+- [x] Add charting library integration for time-series panels
+
+### File Design
+
+- `dashboard/src/App.jsx`
+  - Dashboard homepage composition and live state wiring
+- `dashboard/src/api.js`
+  - API and WebSocket integration
+- `dashboard/src/styles.css`
+  - Industrial monitoring visual language and responsive layout
+
+## Next After Phase 4
+
+- [ ] Replace file queue with Redis-backed pipeline when multi-process scale is needed
 - [ ] Add real storage retention and cleanup jobs
