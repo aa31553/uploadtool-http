@@ -20,17 +20,78 @@ class ConnectionTestResult:
     message: str
 
 
+@dataclass
+class AuthResult:
+    ok: bool
+    message: str
+    token: str | None = None
+    employee_id: str = ""
+    role: str = ""
+
+
 class ServerClient:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
 
-    def upload_batch(self, batch_path: Path, checksum_sha256: str, idempotency_key: str) -> tuple[bool, int | None, str]:
-        targets = [self._config.server.primary]
-        if self._config.server.backup and self._config.server.backup not in targets:
-            targets.append(self._config.server.backup)
+    def login(self, employee_id: str, password: str) -> AuthResult:
+        last_error = "No server configured"
+        for base_url in self._base_urls():
+            try:
+                with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
+                    response = client.post(
+                        f"{base_url}/api/auth/login",
+                        json={"employee_id": employee_id, "password": password},
+                    )
+                response.raise_for_status()
+                payload = response.json()
+                user = payload.get("user", {})
+                return AuthResult(
+                    ok=True,
+                    message=f"Logged in to {base_url}",
+                    token=payload.get("token"),
+                    employee_id=str(user.get("employee_id", employee_id)),
+                    role=str(user.get("role", "user")),
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_error = f"{base_url}: {exc}"
+        return AuthResult(ok=False, message=last_error)
 
+    def logout(self, token: str) -> None:
+        for base_url in self._base_urls():
+            try:
+                with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
+                    client.post(
+                        f"{base_url}/api/auth/logout",
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                return
+            except Exception:  # noqa: BLE001
+                continue
+
+    def register_user(self, token: str, employee_id: str, password: str, role: str) -> tuple[bool, str]:
+        return self._post_auth_action(
+            "/api/auth/register",
+            token,
+            {"employee_id": employee_id, "password": password, "role": role},
+        )
+
+    def change_password(self, token: str, current_password: str, new_password: str) -> tuple[bool, str]:
+        return self._post_auth_action(
+            "/api/auth/change-password",
+            token,
+            {"current_password": current_password, "new_password": new_password},
+        )
+
+    def reset_password(self, token: str, employee_id: str, new_password: str) -> tuple[bool, str]:
+        return self._post_auth_action(
+            "/api/auth/reset-password",
+            token,
+            {"employee_id": employee_id, "new_password": new_password},
+        )
+
+    def upload_batch(self, batch_path: Path, checksum_sha256: str, idempotency_key: str) -> tuple[bool, int | None, str]:
         last_error = "No upload target configured"
-        for url in targets:
+        for url in self._upload_urls():
             try:
                 with batch_path.open("rb") as file_handle:
                     with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
@@ -55,11 +116,7 @@ class ServerClient:
         return False, None, last_error
 
     def test_connection(self) -> ConnectionTestResult:
-        urls = [self._config.server.primary]
-        if self._config.server.backup and self._config.server.backup not in urls:
-            urls.append(self._config.server.backup)
-
-        for url in urls:
+        for url in self._upload_urls():
             base_url = url.rsplit("/upload", 1)[0]
             try:
                 with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
@@ -91,3 +148,29 @@ class ServerClient:
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
         return ConnectionTestResult(False, None, last_error)
+
+    def _post_auth_action(self, path: str, token: str, payload: dict[str, str]) -> tuple[bool, str]:
+        last_error = "No server configured"
+        for base_url in self._base_urls():
+            try:
+                with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
+                    response = client.post(
+                        f"{base_url}{path}",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json=payload,
+                    )
+                response.raise_for_status()
+                body = response.json()
+                return True, str(body.get("message", "Success"))
+            except Exception as exc:  # noqa: BLE001
+                last_error = f"{base_url}: {exc}"
+        return False, last_error
+
+    def _upload_urls(self) -> list[str]:
+        urls = [self._config.server.primary]
+        if self._config.server.backup and self._config.server.backup not in urls:
+            urls.append(self._config.server.backup)
+        return urls
+
+    def _base_urls(self) -> list[str]:
+        return [url.rsplit("/upload", 1)[0] for url in self._upload_urls()]

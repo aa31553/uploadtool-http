@@ -3,6 +3,9 @@ from __future__ import annotations
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
     QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFormLayout,
     QGroupBox,
     QLabel,
@@ -10,13 +13,12 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QMainWindow,
     QPushButton,
-    QSpinBox,
     QTabWidget,
+    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
     QCheckBox,
-    QComboBox,
 )
 
 from machine_client.agent import AgentService
@@ -33,19 +35,53 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Machine Client - {config.machine_id}")
         self.resize(920, 640)
 
-        tabs = QTabWidget()
-        tabs.addTab(self._build_dashboard_tab(), "Dashboard")
-        tabs.addTab(self._build_upload_tab(), "Upload Settings")
-        tabs.addTab(self._build_network_tab(), "Network Settings")
-        tabs.addTab(self._build_storage_tab(), "Storage Settings")
-        tabs.addTab(self._build_queue_tab(), "Queue Monitor")
-        tabs.addTab(self._build_logs_tab(), "Logs")
-        self.setCentralWidget(tabs)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_dashboard_tab(), "Dashboard")
+        self.tabs.addTab(self._build_account_tab(), "Account")
+        self.upload_tab_index = self.tabs.addTab(self._build_upload_tab(), "Upload Settings")
+        self.network_tab_index = self.tabs.addTab(self._build_network_tab(), "Network Settings")
+        self.storage_tab_index = self.tabs.addTab(self._build_storage_tab(), "Storage Settings")
+        self.tabs.addTab(self._build_queue_tab(), "Queue Monitor")
+        self.tabs.addTab(self._build_logs_tab(), "Logs")
+        self.setCentralWidget(self.tabs)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._refresh_status)
         self._timer.start(1000)
         self._refresh_status()
+
+    def _build_account_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        box = QGroupBox("Operator Access")
+        form = QFormLayout(box)
+        self.auth_status_label = QLabel()
+        self.auth_user_label = QLabel()
+        self.auth_role_label = QLabel()
+        form.addRow("Login Status", self.auth_status_label)
+        form.addRow("Employee ID", self.auth_user_label)
+        form.addRow("Role", self.auth_role_label)
+
+        self.login_button = QPushButton("Login")
+        self.login_button.clicked.connect(self._login)
+        self.logout_button = QPushButton("Logout")
+        self.logout_button.clicked.connect(self._logout)
+        self.change_password_button = QPushButton("Change Password")
+        self.change_password_button.clicked.connect(self._change_password)
+        self.register_user_button = QPushButton("Register User")
+        self.register_user_button.clicked.connect(self._register_user)
+        self.reset_password_button = QPushButton("Reset Password")
+        self.reset_password_button.clicked.connect(self._reset_password)
+
+        layout.addWidget(box)
+        layout.addWidget(self.login_button)
+        layout.addWidget(self.logout_button)
+        layout.addWidget(self.change_password_button)
+        layout.addWidget(self.register_user_button)
+        layout.addWidget(self.reset_password_button)
+        layout.addStretch(1)
+        return widget
 
     def _build_dashboard_tab(self) -> QWidget:
         widget = QWidget()
@@ -184,6 +220,9 @@ class MainWindow(QMainWindow):
         status = self._agent.snapshot()
         self.machine_label.setText(status.machine_id)
         self.status_label.setText(status.message)
+        self.auth_status_label.setText("LOGGED IN" if status.authenticated else "LOCKED")
+        self.auth_user_label.setText(status.current_user or "--")
+        self.auth_role_label.setText(status.current_role or "--")
         self.fps_label.setText(f"{status.fps:.1f}")
         self.success_label.setText(f"{status.upload_success_rate:.1f}%")
         self.latency_label.setText(f"{status.latency_ms} ms")
@@ -193,6 +232,17 @@ class MainWindow(QMainWindow):
         self.queue_buffer.setText(f"{status.buffer_images} / {status.buffer_capacity}")
         self.queue_status.setText("STABLE" if status.queue_growth_per_sec <= 0 else "GROWING")
         self.log_view.setPlainText("\n".join(self._agent.log_lines()))
+        self._apply_auth_state(status.authenticated, status.current_role)
+
+    def _apply_auth_state(self, authenticated: bool, role: str) -> None:
+        for index in [self.upload_tab_index, self.network_tab_index, self.storage_tab_index]:
+            self.tabs.setTabEnabled(index, authenticated)
+        self.login_button.setEnabled(not authenticated)
+        self.logout_button.setEnabled(authenticated)
+        self.change_password_button.setEnabled(authenticated)
+        is_admin = authenticated and role == "admin"
+        self.register_user_button.setEnabled(is_admin)
+        self.reset_password_button.setEnabled(is_admin)
 
     def _build_config(self) -> AppConfig:
         return AppConfig(
@@ -236,6 +286,56 @@ class MainWindow(QMainWindow):
         self._config = config
         QMessageBox.information(self, "Saved", "Configuration saved successfully")
 
+    def _login(self) -> None:
+        dialog = CredentialsDialog(self, title="Login", include_role=False, include_current_password=False)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        employee_id, password, _role, _current_password = dialog.values()
+        result = self._agent.login_user(employee_id, password)
+        if result.ok:
+            QMessageBox.information(self, "Login", f"Logged in as {result.employee_id} ({result.role})")
+            return
+        QMessageBox.critical(self, "Login", result.message)
+
+    def _logout(self) -> None:
+        self._agent.logout_user()
+        QMessageBox.information(self, "Logout", "Logged out")
+
+    def _change_password(self) -> None:
+        dialog = CredentialsDialog(self, title="Change Password", include_role=False, include_current_password=True, employee_id_readonly=True)
+        status = self._agent.snapshot()
+        dialog.employee_id_input.setText(status.current_user)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        _employee_id, password, _role, current_password = dialog.values()
+        ok, message = self._agent.change_password(current_password, password)
+        if ok:
+            QMessageBox.information(self, "Change Password", message)
+            return
+        QMessageBox.critical(self, "Change Password", message)
+
+    def _register_user(self) -> None:
+        dialog = CredentialsDialog(self, title="Register User", include_role=True, include_current_password=False)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        employee_id, password, role, _current_password = dialog.values()
+        ok, message = self._agent.register_user(employee_id, password, role)
+        if ok:
+            QMessageBox.information(self, "Register User", message)
+            return
+        QMessageBox.critical(self, "Register User", message)
+
+    def _reset_password(self) -> None:
+        dialog = CredentialsDialog(self, title="Reset Password", include_role=False, include_current_password=False)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        employee_id, password, _role, _current_password = dialog.values()
+        ok, message = self._agent.reset_password(employee_id, password)
+        if ok:
+            QMessageBox.information(self, "Reset Password", message)
+            return
+        QMessageBox.critical(self, "Reset Password", message)
+
     def _test_connection(self) -> None:
         config = self._build_config()
         errors = validate_config(config)
@@ -254,3 +354,50 @@ def run_app(config: AppConfig, agent: AgentService) -> int:
     window = MainWindow(config, agent)
     window.show()
     return app.exec_()
+
+
+class CredentialsDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget | None,
+        title: str,
+        include_role: bool,
+        include_current_password: bool,
+        employee_id_readonly: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        layout = QFormLayout(self)
+
+        self.employee_id_input = QLineEdit()
+        self.employee_id_input.setReadOnly(employee_id_readonly)
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        layout.addRow("Employee ID", self.employee_id_input)
+
+        self.current_password_input: QLineEdit | None = None
+        if include_current_password:
+            self.current_password_input = QLineEdit()
+            self.current_password_input.setEchoMode(QLineEdit.Password)
+            layout.addRow("Current Password", self.current_password_input)
+
+        layout.addRow("Password", self.password_input)
+
+        self.role_input: QComboBox | None = None
+        if include_role:
+            self.role_input = QComboBox()
+            self.role_input.addItems(["user", "admin"])
+            layout.addRow("Role", self.role_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def values(self) -> tuple[str, str, str, str]:
+        return (
+            self.employee_id_input.text().strip(),
+            self.password_input.text().strip(),
+            self.role_input.currentText() if self.role_input is not None else "user",
+            self.current_password_input.text().strip() if self.current_password_input is not None else "",
+        )

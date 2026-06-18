@@ -8,7 +8,7 @@ from pathlib import Path
 from machine_client.config import AppConfig
 from machine_client.disk_queue import DiskQueue
 from machine_client.status import ClientStatus
-from machine_client.transport import ConnectionTestResult, ServerClient
+from machine_client.transport import AuthResult, ConnectionTestResult, ServerClient
 from machine_client.validation import validate_config
 
 
@@ -28,6 +28,9 @@ class AgentService:
         self._queue_growth = 0.0
         self._message = "STARTING"
         self._test_connection_ok = False
+        self._auth_token = ""
+        self._auth_employee_id = ""
+        self._auth_role = ""
         self._last_disk_usage_percent = 0
         self._worker = threading.Thread(target=self._run_loop, daemon=True)
         self._log("INFO", "Agent initialized")
@@ -41,6 +44,9 @@ class AgentService:
             return ClientStatus(
                 machine_id=self._config.machine_id,
                 online=self._message == "ONLINE",
+                authenticated=bool(self._auth_token),
+                current_user=self._auth_employee_id,
+                current_role=self._auth_role,
                 fps=float(self._config.upload.batch_size / max(self._config.upload.interval_sec, 1)),
                 upload_success_rate=success_rate,
                 latency_ms=self._last_latency_ms,
@@ -61,6 +67,62 @@ class AgentService:
         self._log("INFO" if result.ok else "ERROR", result.message)
         return result
 
+    def login_user(self, employee_id: str, password: str) -> AuthResult:
+        result = self._server_client.login(employee_id, password)
+        with self._lock:
+            if result.ok and result.token:
+                self._auth_token = result.token
+                self._auth_employee_id = result.employee_id
+                self._auth_role = result.role
+        self._log("INFO" if result.ok else "ERROR", result.message)
+        return result
+
+    def logout_user(self) -> None:
+        with self._lock:
+            token = self._auth_token
+            employee_id = self._auth_employee_id
+            self._auth_token = ""
+            self._auth_employee_id = ""
+            self._auth_role = ""
+        if token:
+            self._server_client.logout(token)
+            self._log("INFO", f"Logged out {employee_id}")
+
+    def register_user(self, employee_id: str, password: str, role: str) -> tuple[bool, str]:
+        with self._lock:
+            token = self._auth_token
+        if not token:
+            return False, "Login required"
+        ok, message = self._server_client.register_user(token, employee_id, password, role)
+        self._log("INFO" if ok else "ERROR", message)
+        return ok, message
+
+    def change_password(self, current_password: str, new_password: str) -> tuple[bool, str]:
+        with self._lock:
+            token = self._auth_token
+        if not token:
+            return False, "Login required"
+        ok, message = self._server_client.change_password(token, current_password, new_password)
+        self._log("INFO" if ok else "ERROR", message)
+        return ok, message
+
+    def reset_password(self, employee_id: str, new_password: str) -> tuple[bool, str]:
+        with self._lock:
+            token = self._auth_token
+        if not token:
+            return False, "Login required"
+        ok, message = self._server_client.reset_password(token, employee_id, new_password)
+        self._log("INFO" if ok else "ERROR", message)
+        return ok, message
+
+    def is_authenticated(self) -> bool:
+        with self._lock:
+            return bool(self._auth_token)
+
+    def is_admin(self) -> bool:
+        with self._lock:
+            return self._auth_role == "admin"
+
     def test_connection_for_config(self, config: AppConfig) -> ConnectionTestResult:
         errors = validate_config(config)
         if errors:
@@ -75,6 +137,8 @@ class AgentService:
         errors = validate_config(config)
         if require_connection_test and not self._test_connection_ok:
             errors.append("Run Test Connection successfully before saving network settings")
+        if not self.is_authenticated():
+            errors.append("Login is required before changing settings")
         if errors:
             return errors
 

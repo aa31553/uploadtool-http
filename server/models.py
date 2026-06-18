@@ -99,3 +99,41 @@ class MachineDetail(BaseModel):
     recent_batches: list[ImageFlowBatch]
     queue_depth: int
     recent_upload_count: int
+
+
+class AuthUser(BaseModel):
+    employee_id: str
+    role: str
+
+
+class LoginRequest(BaseModel):
+    employee_id: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    user: AuthUser
+
+
+class RegisterUserRequest(BaseModel):
+    employee_id: str
+    password: str
+    role: str = "user"
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ResetPasswordRequest(BaseModel):
+    employee_id: str
+    new_password: str
+
+
+class AccountActionResponse(BaseModel):
+    success: bool
+    message: str
+    user: AuthUser | None = None

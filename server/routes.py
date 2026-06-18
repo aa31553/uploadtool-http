@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 
+from server.auth import UserAuthService
 from server.config import ServerConfig
-from server.models import AlertItem, ImageFlowBatch, MachineDetail, MachineStatus, QueueStatus, ServerMetrics, StorageStatus, UploadAccepted, WorkerState
+from server.models import AccountActionResponse, AlertItem, AuthUser, ChangePasswordRequest, ImageFlowBatch, LoginRequest, LoginResponse, MachineDetail, MachineStatus, QueueStatus, RegisterUserRequest, ResetPasswordRequest, ServerMetrics, StorageStatus, UploadAccepted, WorkerState
 from server.queue import QueueBackend
 from server.store import store
 from server.storage import UploadStorage
@@ -16,24 +17,26 @@ router = APIRouter()
 runtime_config: ServerConfig | None = None
 upload_storage: UploadStorage | None = None
 runtime_queue: QueueBackend | None = None
+runtime_auth: UserAuthService | None = None
 
 
-def configure_routes(config: ServerConfig, storage: UploadStorage, queue: QueueBackend) -> None:
-    global runtime_config, upload_storage, runtime_queue
+def configure_routes(config: ServerConfig, storage: UploadStorage, queue: QueueBackend, auth: UserAuthService) -> None:
+    global runtime_config, upload_storage, runtime_queue, runtime_auth
     runtime_config = config
     upload_storage = storage
     runtime_queue = queue
+    runtime_auth = auth
     store.configure(config, queue)
 
 
-def _require_runtime() -> tuple[ServerConfig, UploadStorage, QueueBackend]:
-    if runtime_config is None or upload_storage is None or runtime_queue is None:
+def _require_runtime() -> tuple[ServerConfig, UploadStorage, QueueBackend, UserAuthService]:
+    if runtime_config is None or upload_storage is None or runtime_queue is None or runtime_auth is None:
         raise RuntimeError("Server routes are not configured")
-    return runtime_config, upload_storage, runtime_queue
+    return runtime_config, upload_storage, runtime_queue, runtime_auth
 
 
 def _validate_machine_token(machine_id: str, token: str | None) -> None:
-    config, _, _ = _require_runtime()
+    config, _, _, _ = _require_runtime()
     expected = config.machine_token(machine_id)
     if expected is None:
         raise HTTPException(status_code=403, detail="Unknown machine_id")
@@ -42,7 +45,7 @@ def _validate_machine_token(machine_id: str, token: str | None) -> None:
 
 
 def enforce_ip_allowlist(client_host: str | None) -> None:
-    config, _, _ = _require_runtime()
+    config, _, _, _ = _require_runtime()
     allowlist = set(config.ip_allowlist)
     if not allowlist:
         return
@@ -51,12 +54,21 @@ def enforce_ip_allowlist(client_host: str | None) -> None:
 
 
 def resolve_client_host(request: Request) -> str | None:
-    config, _, _ = _require_runtime()
+    config, _, _, _ = _require_runtime()
     if config.trust_x_forwarded_for:
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
             return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
+
+
+def _bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    prefix = "Bearer "
+    if not authorization.startswith(prefix):
+        raise HTTPException(status_code=401, detail="Authorization header must use Bearer token")
+    return authorization[len(prefix) :].strip() or None
 
 
 @router.get("/health")
@@ -71,7 +83,7 @@ def healthz() -> dict[str, str]:
 
 @router.get("/readyz")
 def readyz() -> dict[str, str]:
-    _, storage, _ = _require_runtime()
+    _, storage, _, _ = _require_runtime()
     ready, message = storage.readiness()
     if not ready:
         raise HTTPException(status_code=503, detail={"code": "E301", "message": message, "recovery": "Check storage path permissions and free disk space"})
@@ -96,7 +108,7 @@ async def upload_batch(
     if not idempotency_key:
         raise HTTPException(status_code=400, detail={"code": "E203", "message": "Missing idempotency header", "recovery": "Client should resend batch with X-Idempotency-Key"})
     _validate_machine_token(machine_id, api_token)
-    _, storage, _ = _require_runtime()
+    _, storage, _, _ = _require_runtime()
     try:
         stored_path, _metadata, duplicate = await storage.save_upload(machine_id, timestamp, batch_file, idempotency_key, checksum_sha256)
     except ValueError as exc:
@@ -112,6 +124,79 @@ async def upload_batch(
         queue_enqueued=not duplicate,
         error_code=None,
     )
+
+
+@router.post("/api/auth/login", response_model=LoginResponse)
+def login(request: Request, payload: LoginRequest) -> LoginResponse:
+    enforce_ip_allowlist(resolve_client_host(request))
+    _, _, _, auth = _require_runtime()
+    session = auth.login(payload.employee_id, payload.password)
+    return LoginResponse(
+        token=session.token,
+        expires_at=session.expires_at,
+        user=AuthUser(employee_id=session.employee_id, role=session.role),
+    )
+
+
+@router.post("/api/auth/logout", response_model=AccountActionResponse)
+def logout(request: Request, authorization: str | None = Header(default=None, alias="Authorization")) -> AccountActionResponse:
+    enforce_ip_allowlist(resolve_client_host(request))
+    _, _, _, auth = _require_runtime()
+    token = _bearer_token(authorization)
+    if token:
+        auth.logout(token)
+    return AccountActionResponse(success=True, message="Logged out")
+
+
+@router.get("/api/auth/me", response_model=AuthUser)
+def auth_me(request: Request, authorization: str | None = Header(default=None, alias="Authorization")) -> AuthUser:
+    enforce_ip_allowlist(resolve_client_host(request))
+    _, _, _, auth = _require_runtime()
+    session = auth.require_session(_bearer_token(authorization))
+    return AuthUser(employee_id=session.employee_id, role=session.role)
+
+
+@router.post("/api/auth/register", response_model=AccountActionResponse)
+def register_user(
+    request: Request,
+    payload: RegisterUserRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> AccountActionResponse:
+    enforce_ip_allowlist(resolve_client_host(request))
+    _, _, _, auth = _require_runtime()
+    actor = auth.require_session(_bearer_token(authorization))
+    user = auth.register_user(actor, payload.employee_id, payload.password, payload.role)
+    return AccountActionResponse(
+        success=True,
+        message="User registered",
+        user=AuthUser(employee_id=str(user["employee_id"]), role=str(user["role"])),
+    )
+
+
+@router.post("/api/auth/change-password", response_model=AccountActionResponse)
+def change_password(
+    request: Request,
+    payload: ChangePasswordRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> AccountActionResponse:
+    enforce_ip_allowlist(resolve_client_host(request))
+    _, _, _, auth = _require_runtime()
+    actor = auth.require_session(_bearer_token(authorization))
+    auth.change_password(actor, payload.current_password, payload.new_password)
+    return AccountActionResponse(success=True, message="Password updated")
+
+
+@router.post("/api/auth/reset-password", response_model=AccountActionResponse)
+def reset_password(
+    request: Request,
+    payload: ResetPasswordRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> AccountActionResponse:
+    enforce_ip_allowlist(resolve_client_host(request))
+    _, _, _, auth = _require_runtime()
+    actor = auth.require_session(_bearer_token(authorization))
+    auth.reset_password(actor, payload.employee_id, payload.new_password)
+    return AccountActionResponse(success=True, message="Password reset")
 
 
 @router.get("/api/machines", response_model=list[MachineStatus])
@@ -160,7 +245,7 @@ def get_worker_status() -> WorkerState:
 @router.websocket("/ws/live")
 async def live_updates(websocket: WebSocket) -> None:
     client_host = websocket.client.host if websocket.client else None
-    config, _, _ = _require_runtime()
+    config, _, _, _ = _require_runtime()
     allowlist = set(config.ip_allowlist)
     if allowlist and client_host not in allowlist:
         await websocket.close(code=4403)

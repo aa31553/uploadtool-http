@@ -7,6 +7,9 @@ from dataclasses import dataclass
 class ClientStatus:
     machine_id: str
     online: bool
+    authenticated: bool
+    current_user: str
+    current_role: str
     fps: float
     upload_success_rate: float
     latency_ms: int

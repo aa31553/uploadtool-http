@@ -25,6 +25,9 @@ class ServerConfig:
     metadata_path: str
     worker_state_path: str
     idempotency_index_path: str
+    user_store_path: str
+    bootstrap_admin_employee_id: str
+    bootstrap_admin_password: str
     raw_retention_days: int
     temp_retention_hours: int
     max_disk_usage_percent: int
@@ -55,6 +58,9 @@ def load_server_config(path: str | Path) -> ServerConfig:
         metadata_path=os.environ.get("MIUS_METADATA_PATH", data["metadata_path"]),
         worker_state_path=os.environ.get("MIUS_WORKER_STATE_PATH", data.get("worker_state_path", "runtime/server-metadata/worker-state.json")),
         idempotency_index_path=os.environ.get("MIUS_IDEMPOTENCY_INDEX_PATH", data.get("idempotency_index_path", "runtime/server-metadata/idempotency-index.json")),
+        user_store_path=os.environ.get("MIUS_USER_STORE_PATH", data.get("user_store_path", "runtime/server-metadata/users.json")),
+        bootstrap_admin_employee_id=os.environ.get("MIUS_BOOTSTRAP_ADMIN_ID", data.get("bootstrap_admin_employee_id", "admin")),
+        bootstrap_admin_password=os.environ.get("MIUS_BOOTSTRAP_ADMIN_PASSWORD", data.get("bootstrap_admin_password", "change-me-now")),
         raw_retention_days=int(os.environ.get("MIUS_RAW_RETENTION_DAYS", data.get("raw_retention_days", 7))),
         temp_retention_hours=int(os.environ.get("MIUS_TEMP_RETENTION_HOURS", data.get("temp_retention_hours", 24))),
         max_disk_usage_percent=int(os.environ.get("MIUS_MAX_DISK_USAGE_PERCENT", data.get("max_disk_usage_percent", 90))),

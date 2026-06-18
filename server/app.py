@@ -9,6 +9,7 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from server.auth import UserAuthService
 from server.config import load_server_config
 from server.maintenance import MaintenanceManager
 from server.queue import create_queue
@@ -33,7 +34,8 @@ def create_app() -> FastAPI:
     config = load_server_config(config_path)
     queue = create_queue(config)
     storage = UploadStorage(config, queue)
-    configure_routes(config, storage, queue)
+    auth = UserAuthService(config)
+    configure_routes(config, storage, queue, auth)
     maintenance = MaintenanceManager(config)
     maintenance.run_startup_maintenance()
 
