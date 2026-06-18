@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -36,16 +37,45 @@ def create_app() -> FastAPI:
     maintenance = MaintenanceManager(config)
     maintenance.run_startup_maintenance()
 
-    app = FastAPI(title="Machine Image Uploader Server", version="0.1.0")
+    app = FastAPI(
+        title="Machine Image Uploader Server",
+        version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+    )
     app.include_router(router)
 
-    dashboard_dist = root / "dashboard" / "dist"
-    if dashboard_dist.exists():
-        app.mount("/dashboard", StaticFiles(directory=dashboard_dist, html=True), name="dashboard")
+    static_root = root / "server" / "static"
+    if static_root.exists():
+        app.mount("/static", StaticFiles(directory=static_root), name="static")
+
+    dashboard_root = root / "server" / "static" / "dashboard"
+    if dashboard_root.exists():
+        app.mount("/dashboard", StaticFiles(directory=dashboard_root, html=True), name="dashboard")
 
         @app.get("/", include_in_schema=False)
         def dashboard_root() -> RedirectResponse:
             return RedirectResponse(url="/dashboard/")
+
+    @app.get("/docs", include_in_schema=False)
+    def local_swagger_ui():
+        return get_swagger_ui_html(
+            openapi_url=app.openapi_url,
+            title=f"{app.title} - Swagger UI",
+            swagger_js_url="/static/vendor/swagger-ui-bundle.js",
+            swagger_css_url="/static/vendor/swagger-ui.css",
+            swagger_favicon_url="/static/vendor/favicon.svg",
+        )
+
+    @app.get("/redoc", include_in_schema=False)
+    def local_redoc():
+        return get_redoc_html(
+            openapi_url=app.openapi_url,
+            title=f"{app.title} - ReDoc",
+            redoc_js_url="/static/vendor/redoc.standalone.js",
+            redoc_favicon_url="/static/vendor/favicon.svg",
+            with_google_fonts=False,
+        )
 
     return app
 

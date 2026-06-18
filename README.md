@@ -114,9 +114,10 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 
 ## Frontend
 
-- Dashboard app: `dashboard/`
+- Runtime dashboard: `server/static/dashboard/`
+- Legacy React source/build: `dashboard/`
 
-### Run dashboard locally
+### Optional dashboard development workspace
 
 ```bash
 cd dashboard
@@ -126,10 +127,17 @@ npm run dev
 
 ### Offline dashboard via backend static hosting
 
-After `dashboard/dist` is included in the repo, start only the Python server and open:
+Start only the Python server and open:
 
 ```text
 http://127.0.0.1:8000/dashboard/
+```
+
+Swagger UI and ReDoc are also self-hosted and do not need external CDNs:
+
+```text
+http://127.0.0.1:8000/docs
+http://127.0.0.1:8000/redoc
 ```
 
 ---
@@ -208,7 +216,7 @@ pip install -r requirements-machine-client.txt -r requirements-server.txt -r req
 python -m server
 ```
 
-When `dashboard/dist` exists, the same server also serves the dashboard static site.
+The same server also serves the local dashboard static site, Swagger UI, and ReDoc without external network resources.
 
 ### Run worker
 
