@@ -1,7 +1,5 @@
 (function () {
   const apiBase = window.location.origin
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsBase = `${wsProtocol}//${window.location.host}`
 
   const statusMeta = {
     online: { label: 'ONLINE', tone: 'ok' },
@@ -31,7 +29,7 @@
     selectedMachineId: '',
     machineDetail: null,
     imageFlow: [],
-    streamState: 'connecting',
+    streamState: 'polling',
     errorMessage: '',
     pollTimer: null,
   }
@@ -71,36 +69,6 @@
   function fetchRecentImageFlow(machineId) {
     const query = machineId ? `?machine_id=${encodeURIComponent(machineId)}&limit=12` : '?limit=12'
     return getJson(`/api/image-flow/recent${query}`)
-  }
-
-  function connectStream() {
-    const socket = new WebSocket(`${wsBase}/ws/live`)
-    socket.onmessage = (event) => {
-      try {
-        applySnapshot(JSON.parse(event.data))
-        state.streamState = 'live'
-        state.errorMessage = ''
-        stopPolling()
-        render()
-      } catch (error) {
-        degradeToPolling(String(error))
-      }
-    }
-    socket.onerror = () => {
-      degradeToPolling('WebSocket stream unavailable. Falling back to HTTP polling.')
-    }
-    socket.onclose = () => {
-      if (state.streamState !== 'live') {
-        degradeToPolling('WebSocket stream closed. Falling back to HTTP polling.')
-      }
-    }
-  }
-
-  function degradeToPolling(message) {
-    state.streamState = 'polling'
-    state.errorMessage = message
-    startPolling()
-    render()
   }
 
   function startPolling() {
@@ -162,7 +130,7 @@
         state.errorMessage = error.message
         render()
       })
-    connectStream()
+    startPolling()
   }
 
   function render() {
