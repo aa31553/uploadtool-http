@@ -6,3 +6,8 @@ dist/
 build/
 *.log
 *.sqlite3
+config.json
+server-config.json
+runtime/
+dashboard/node_modules/
+dashboard/dist/

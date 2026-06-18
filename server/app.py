@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from server.config import load_server_config
 from server.maintenance import MaintenanceManager
-from server.queue import FileQueue
+from server.queue import create_queue
 from server.routes import configure_routes, router
 from server.storage import UploadStorage
 
@@ -20,7 +20,7 @@ def create_app() -> FastAPI:
         config_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     config = load_server_config(config_path)
-    queue = FileQueue(config)
+    queue = create_queue(config)
     storage = UploadStorage(config, queue)
     configure_routes(config, storage, queue)
     maintenance = MaintenanceManager(config)

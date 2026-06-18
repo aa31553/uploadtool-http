@@ -133,8 +133,8 @@
 
 ## Next After Phase 4
 
-- [ ] Replace file queue with Redis-backed pipeline when multi-process scale is needed
-- [ ] Add real storage retention and cleanup jobs
+- [x] Replace file queue with Redis-backed pipeline when multi-process scale is needed
+- [x] Add real storage retention and cleanup jobs
 
 ## Phase 5: Reliability and Fail-Safe Hardening
 

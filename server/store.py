@@ -10,17 +10,17 @@ from pathlib import Path
 
 from server.config import ServerConfig
 from server.models import AlertItem, ImageFlowBatch, MachineDetail, MachineStatus, QueueStatus, ServerMetrics, StorageStatus, WorkerState
-from server.queue import FileQueue
+from server.queue import QueueBackend
 from worker.state import WorkerStateStore
 
 
 class RuntimeStore:
     def __init__(self) -> None:
         self._config: ServerConfig | None = None
-        self._queue: FileQueue | None = None
+        self._queue: QueueBackend | None = None
         self._worker_state_store: WorkerStateStore | None = None
 
-    def configure(self, config: ServerConfig, queue: FileQueue) -> None:
+    def configure(self, config: ServerConfig, queue: QueueBackend) -> None:
         self._config = config
         self._queue = queue
         self._worker_state_store = WorkerStateStore(config)
@@ -218,7 +218,7 @@ class RuntimeStore:
                 break
         return batches
 
-    def _require_runtime(self) -> tuple[ServerConfig, FileQueue]:
+    def _require_runtime(self) -> tuple[ServerConfig, QueueBackend]:
         if self._config is None or self._queue is None:
             raise RuntimeError("Runtime store is not configured")
         return self._config, self._queue
@@ -283,20 +283,8 @@ class RuntimeStore:
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
     def _job_status_map(self) -> dict[str, dict[str, object]]:
-        config, _queue = self._require_runtime()
-        result: dict[str, dict[str, object]] = {}
-        for folder_name in ["pending", "processing", "completed", "failed"]:
-            directory = Path(config.queue_root) / folder_name
-            if not directory.exists():
-                continue
-            for path in directory.glob("*.json"):
-                try:
-                    payload = json.loads(path.read_text(encoding="utf-8"))
-                except json.JSONDecodeError:
-                    continue
-                job_id = str(payload.get("job_id", path.stem))
-                result[job_id] = payload
-        return result
+        _config, queue = self._require_runtime()
+        return queue.job_status_map()
 
 
 store = RuntimeStore()

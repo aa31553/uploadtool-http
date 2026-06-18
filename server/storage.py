@@ -12,11 +12,11 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from server.config import ServerConfig
-from server.queue import FileQueue
+from server.queue import QueueBackend
 
 
 class UploadStorage:
-    def __init__(self, config: ServerConfig, queue: FileQueue) -> None:
+    def __init__(self, config: ServerConfig, queue: QueueBackend) -> None:
         self._config = config
         self._queue = queue
         self._lock = threading.Lock()

@@ -7,7 +7,7 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, Request, Uploa
 
 from server.config import ServerConfig
 from server.models import AlertItem, ImageFlowBatch, MachineDetail, MachineStatus, QueueStatus, ServerMetrics, StorageStatus, UploadAccepted, WorkerState
-from server.queue import FileQueue
+from server.queue import QueueBackend
 from server.store import store
 from server.storage import UploadStorage
 
@@ -15,10 +15,10 @@ from server.storage import UploadStorage
 router = APIRouter()
 runtime_config: ServerConfig | None = None
 upload_storage: UploadStorage | None = None
-runtime_queue: FileQueue | None = None
+runtime_queue: QueueBackend | None = None
 
 
-def configure_routes(config: ServerConfig, storage: UploadStorage, queue: FileQueue) -> None:
+def configure_routes(config: ServerConfig, storage: UploadStorage, queue: QueueBackend) -> None:
     global runtime_config, upload_storage, runtime_queue
     runtime_config = config
     upload_storage = storage
@@ -26,7 +26,7 @@ def configure_routes(config: ServerConfig, storage: UploadStorage, queue: FileQu
     store.configure(config, queue)
 
 
-def _require_runtime() -> tuple[ServerConfig, UploadStorage, FileQueue]:
+def _require_runtime() -> tuple[ServerConfig, UploadStorage, QueueBackend]:
     if runtime_config is None or upload_storage is None or runtime_queue is None:
         raise RuntimeError("Server routes are not configured")
     return runtime_config, upload_storage, runtime_queue

@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 
 from server.config import ServerConfig
-from server.queue import FileQueue
+from server.queue import create_queue
 from worker.processor import JobProcessor
 from worker.state import WorkerStateStore
 
@@ -12,7 +12,7 @@ from worker.state import WorkerStateStore
 class WorkerService:
     def __init__(self, config: ServerConfig) -> None:
         self._config = config
-        self._queue = FileQueue(config)
+        self._queue = create_queue(config)
         self._processor = JobProcessor(config)
         self._state_store = WorkerStateStore(config)
         self._processed_jobs = 0

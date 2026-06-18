@@ -15,6 +15,8 @@ class MachineAuth:
 class ServerConfig:
     host: str
     port: int
+    queue_backend: str
+    redis_url: str
     storage_root: str
     temp_root: str
     queue_root: str
@@ -43,6 +45,8 @@ def load_server_config(path: str | Path) -> ServerConfig:
     return ServerConfig(
         host=os.environ.get("MIUS_SERVER_HOST", data["host"]),
         port=int(os.environ.get("MIUS_SERVER_PORT", data["port"])),
+        queue_backend=os.environ.get("MIUS_QUEUE_BACKEND", data.get("queue_backend", "file")),
+        redis_url=os.environ.get("MIUS_REDIS_URL", data.get("redis_url", "redis://127.0.0.1:6379/0")),
         storage_root=os.environ.get("MIUS_STORAGE_ROOT", storage_root),
         temp_root=os.environ.get("MIUS_TEMP_ROOT", data["temp_root"]),
         queue_root=os.environ.get("MIUS_QUEUE_ROOT", data.get("queue_root", "runtime/server-queue")),

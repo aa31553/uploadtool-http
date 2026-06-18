@@ -132,6 +132,7 @@ npm run dev
 - TLS reverse proxy example: `deploy/nginx/machine-image-uploader.conf`
 - Packaging script: `deploy/scripts/package-release.sh`
 - Backup script: `deploy/scripts/backup-runtime.sh`
+- Smoke test script: `scripts/smoke_test.py`
 - Config path overrides:
   - `MIUS_MACHINE_CONFIG`
   - `MIUS_SERVER_CONFIG`
@@ -190,19 +191,37 @@ npm run dev
 ### Install dependencies
 
 ```bash
-pip install fastapi uvicorn redis pillow opencv-python
+pip install -r requirements-machine-client.txt -r requirements-server.txt -r requirements-worker.txt
 ```
 
 ### Run API server
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m server
 ```
 
 ### Run worker
 
 ```bash
-python worker.py
+python -m worker
+```
+
+### Run machine client
+
+```bash
+python -m machine_client
+```
+
+### Run maintenance cleanup once
+
+```bash
+python -m server.maintenance_main
+```
+
+### Run smoke test
+
+```bash
+python scripts/smoke_test.py http://127.0.0.1:8000 replace-me MC01
 ```
 
 ---

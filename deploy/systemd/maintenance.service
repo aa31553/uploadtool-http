@@ -1,0 +1,8 @@
+[Unit]
+Description=Machine Image Uploader Maintenance
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/machine-image-uploader
+Environment=MIUS_SERVER_CONFIG=/opt/machine-image-uploader/server-config.json
+ExecStart=/usr/bin/python3 -m server.maintenance_main

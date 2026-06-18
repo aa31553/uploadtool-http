@@ -12,6 +12,6 @@ tar \
   --exclude='dashboard/node_modules' \
   -czf "${ARCHIVE_PATH}" \
   -C "${ROOT_DIR}" \
-  README.md TODO.md docs deploy machine_client server worker dashboard requirements-machine-client.txt requirements-server.txt requirements-worker.txt config.example.json server-config.example.json
+  README.md TODO.md docs deploy machine_client server worker dashboard scripts requirements-machine-client.txt requirements-server.txt requirements-worker.txt config.example.json server-config.example.json
 
 printf 'Created %s\n' "${ARCHIVE_PATH}"

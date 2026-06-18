@@ -1,6 +1,8 @@
 {
   "host": "0.0.0.0",
   "port": 8000,
+  "queue_backend": "file",
+  "redis_url": "redis://127.0.0.1:6379/0",
   "storage_root": "runtime/server-storage",
   "temp_root": "runtime/server-temp",
   "queue_root": "runtime/server-queue",
@@ -11,7 +13,7 @@
   "idempotency_index_path": "runtime/server-metadata/idempotency-index.json",
   "raw_retention_days": 7,
   "temp_retention_hours": 24,
-  "max_disk_usage_percent": 90,
+  "max_disk_usage_percent": 95,
   "ip_allowlist": [
     "127.0.0.1",
     "::1"

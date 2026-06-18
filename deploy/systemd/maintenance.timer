@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Machine Image Uploader maintenance periodically
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
