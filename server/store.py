@@ -13,17 +13,29 @@ from server.models import AlertItem, ImageFlowBatch, MachineDetail, MachineStatu
 from server.queue import QueueBackend
 from worker.state import WorkerStateStore
 
+try:
+    import psutil
+except ImportError:  # pragma: no cover
+    psutil = None
+
 
 class RuntimeStore:
     def __init__(self) -> None:
         self._config: ServerConfig | None = None
         self._queue: QueueBackend | None = None
         self._worker_state_store: WorkerStateStore | None = None
+        self._last_net_sample: tuple[float, float, float] | None = None
+        self._last_disk_sample: tuple[float, float, float] | None = None
 
     def configure(self, config: ServerConfig, queue: QueueBackend) -> None:
         self._config = config
         self._queue = queue
         self._worker_state_store = WorkerStateStore(config)
+        if psutil is not None:
+            try:
+                psutil.cpu_percent(interval=None)
+            except Exception:  # noqa: BLE001
+                pass
 
     def machines(self) -> list[MachineStatus]:
         config, queue = self._require_runtime()
@@ -76,22 +88,19 @@ class RuntimeStore:
         config, _queue = self._require_runtime()
         now = datetime.now(timezone.utc)
         load_avg_1, load_avg_5, load_avg_15 = self._load_average()
-        cpu_percent = round(min(100.0, load_avg_1 / max(os.cpu_count() or 1, 1) * 100.0), 1)
+        cpu_percent = round(self._cpu_percent(load_avg_1), 1)
         ram_percent = round(self._memory_usage_percent(), 1)
-        disk_usage = shutil.disk_usage(config.storage_root)
-        disk_percent = round((disk_usage.used / disk_usage.total) * 100.0, 1)
-        upload_bytes = self._bytes_in_recent_uploads(seconds=60)
-        processed_bytes = self._directory_size(Path(config.processed_root), seconds=60)
-        upload_mbps = round(upload_bytes / 60 / 1024 / 1024, 2)
-        processed_mbps = round(processed_bytes / 60 / 1024 / 1024, 2)
+        disk_percent = round(self._disk_usage_percent(config.storage_root), 1)
+        net_in_mbps, net_out_mbps = self._network_rates()
+        disk_read_mbps, disk_write_mbps = self._disk_io_rates()
         return ServerMetrics(
             cpu_percent=cpu_percent,
             ram_percent=ram_percent,
             disk_percent=disk_percent,
-            net_in_mbps=upload_mbps,
-            net_out_mbps=processed_mbps,
-            disk_read_mbps=processed_mbps,
-            disk_write_mbps=upload_mbps,
+            net_in_mbps=round(net_in_mbps, 2),
+            net_out_mbps=round(net_out_mbps, 2),
+            disk_read_mbps=round(disk_read_mbps, 2),
+            disk_write_mbps=round(disk_write_mbps, 2),
             load_avg_1=round(load_avg_1, 2),
             load_avg_5=round(load_avg_5, 2),
             load_avg_15=round(load_avg_15, 2),
@@ -252,6 +261,8 @@ class RuntimeStore:
         return total
 
     def _memory_usage_percent(self) -> float:
+        if psutil is not None:
+            return float(psutil.virtual_memory().percent)
         meminfo_path = Path("/proc/meminfo")
         if not meminfo_path.exists():
             return 0.0
@@ -283,10 +294,70 @@ class RuntimeStore:
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
     def _load_average(self) -> tuple[float, float, float]:
+        if psutil is not None and hasattr(psutil, "getloadavg"):
+            try:
+                return tuple(float(value) for value in psutil.getloadavg())
+            except (OSError, AttributeError):
+                pass
         try:
             return os.getloadavg()
         except (AttributeError, OSError):
             return (0.0, 0.0, 0.0)
+
+    def _cpu_percent(self, load_avg_1: float) -> float:
+        if psutil is not None:
+            try:
+                return float(psutil.cpu_percent(interval=None))
+            except Exception:  # noqa: BLE001
+                pass
+        return min(100.0, load_avg_1 / max(os.cpu_count() or 1, 1) * 100.0)
+
+    def _disk_usage_percent(self, path: str) -> float:
+        if psutil is not None:
+            try:
+                return float(psutil.disk_usage(path).percent)
+            except Exception:  # noqa: BLE001
+                pass
+        usage = shutil.disk_usage(path)
+        return (usage.used / usage.total) * 100.0 if usage.total else 0.0
+
+    def _network_rates(self) -> tuple[float, float]:
+        if psutil is None:
+            upload_bytes = self._bytes_in_recent_uploads(seconds=60)
+            processed_bytes = self._directory_size(Path(self._config.processed_root), seconds=60) if self._config else 0
+            return upload_bytes / 60 / 1024 / 1024, processed_bytes / 60 / 1024 / 1024
+        counters = psutil.net_io_counters()
+        now = datetime.now(timezone.utc).timestamp()
+        current = (now, float(counters.bytes_recv), float(counters.bytes_sent))
+        previous = self._last_net_sample
+        self._last_net_sample = current
+        if previous is None:
+            return (0.0, 0.0)
+        elapsed = max(current[0] - previous[0], 0.001)
+        return (
+            max(current[1] - previous[1], 0.0) / elapsed / 1024 / 1024,
+            max(current[2] - previous[2], 0.0) / elapsed / 1024 / 1024,
+        )
+
+    def _disk_io_rates(self) -> tuple[float, float]:
+        if psutil is None:
+            upload_bytes = self._bytes_in_recent_uploads(seconds=60)
+            processed_bytes = self._directory_size(Path(self._config.processed_root), seconds=60) if self._config else 0
+            return processed_bytes / 60 / 1024 / 1024, upload_bytes / 60 / 1024 / 1024
+        counters = psutil.disk_io_counters()
+        if counters is None:
+            return (0.0, 0.0)
+        now = datetime.now(timezone.utc).timestamp()
+        current = (now, float(counters.read_bytes), float(counters.write_bytes))
+        previous = self._last_disk_sample
+        self._last_disk_sample = current
+        if previous is None:
+            return (0.0, 0.0)
+        elapsed = max(current[0] - previous[0], 0.001)
+        return (
+            max(current[1] - previous[1], 0.0) / elapsed / 1024 / 1024,
+            max(current[2] - previous[2], 0.0) / elapsed / 1024 / 1024,
+        )
 
     def _job_status_map(self) -> dict[str, dict[str, object]]:
         _config, queue = self._require_runtime()

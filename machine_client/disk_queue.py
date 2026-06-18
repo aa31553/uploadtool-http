@@ -35,6 +35,7 @@ class DiskQueue:
         self._sent_dir = self._root / "sent"
         self._failed_dir = self._root / "failed"
         self._manifests_dir = self._root / "manifests"
+        self._source_index_path = self._root / "source-index.json"
         self._ensure_directories()
         self.recover_inflight()
 
@@ -55,12 +56,18 @@ class DiskQueue:
         if not image_root.exists():
             return 0
 
+        source_index = self._load_source_index()
         now = datetime.now(timezone.utc).timestamp()
-        moved = 0
+        copied = 0
         for path in sorted(image_root.iterdir()):
             if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
                 continue
             if now - path.stat().st_mtime < min_age_seconds:
+                continue
+
+            source_key = str(path.resolve())
+            source_signature = f"{path.stat().st_mtime_ns}:{path.stat().st_size}"
+            if source_index.get(source_key) == source_signature:
                 continue
 
             destination = self._staged_dir / path.name
@@ -68,9 +75,13 @@ class DiskQueue:
             while destination.exists():
                 destination = self._staged_dir / f"{path.stem}_{counter}{path.suffix}"
                 counter += 1
-            shutil.move(str(path), str(destination))
-            moved += 1
-        return moved
+            shutil.copy2(path, destination)
+            source_index[source_key] = source_signature
+            copied += 1
+
+        if copied:
+            self._save_source_index(source_index)
+        return copied
 
     def maybe_build_batch(self) -> BatchRecord | None:
         staged_files = sorted(path for path in self._staged_dir.iterdir() if path.is_file())
@@ -180,3 +191,15 @@ class DiskQueue:
             path.replace(target)
             recovered += 1
         return recovered
+
+    def _load_source_index(self) -> dict[str, str]:
+        if not self._source_index_path.exists():
+            return {}
+        try:
+            data = json.loads(self._source_index_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return {str(key): str(value) for key, value in data.items()}
+
+    def _save_source_index(self, source_index: dict[str, str]) -> None:
+        self._source_index_path.write_text(json.dumps(source_index, indent=2), encoding="utf-8")
