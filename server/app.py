@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 import os
 from pathlib import Path
 
@@ -12,6 +13,13 @@ from server.maintenance import MaintenanceManager
 from server.queue import create_queue
 from server.routes import configure_routes, router
 from server.storage import UploadStorage
+
+
+# Some factory/offline environments inherit incomplete MIME mappings and may
+# serve JavaScript as text/plain unless we register these explicitly.
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
 
 
 def create_app() -> FastAPI:
