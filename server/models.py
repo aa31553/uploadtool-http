@@ -63,6 +63,9 @@ class UploadAccepted(BaseModel):
     accepted: bool
     stored_path: str
     metadata_recorded: bool
+    duplicate: bool
+    queue_enqueued: bool
+    error_code: str | None = None
 
 
 class WorkerState(BaseModel):

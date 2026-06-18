@@ -166,7 +166,8 @@ class RuntimeStore:
             alerts.append(AlertItem(level="warning", message="Queue backlog increasing", source="queue", created_at=now))
 
         storage = self.storage_status()
-        if storage.usage_percent > 85:
+        config, _queue = self._require_runtime()
+        if storage.usage_percent > config.max_disk_usage_percent:
             alerts.append(AlertItem(level="critical", message=f"Disk usage {storage.usage_percent}%", source="storage", created_at=now))
 
         worker = self.worker_state()

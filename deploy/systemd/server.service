@@ -1,0 +1,15 @@
+[Unit]
+Description=Machine Image Uploader Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/machine-image-uploader
+Environment=MIUS_SERVER_CONFIG=/opt/machine-image-uploader/server-config.json
+ExecStart=/usr/bin/python3 -m server
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

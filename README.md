@@ -108,6 +108,7 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Dashboard UI/UX design: `docs/ui-ux-dashboard-design.md`
 - Machine client UI spec: `docs/machine-client-ui-spec.md`
 - Implementation plan: `docs/implementation-plan.md`
+- Operations runbook: `docs/operations-runbook.md`
 
 ---
 
@@ -122,6 +123,26 @@ cd dashboard
 npm install
 npm run dev
 ```
+
+---
+
+## Deployment Notes
+
+- Systemd unit examples: `deploy/systemd/`
+- TLS reverse proxy example: `deploy/nginx/machine-image-uploader.conf`
+- Packaging script: `deploy/scripts/package-release.sh`
+- Backup script: `deploy/scripts/backup-runtime.sh`
+- Config path overrides:
+  - `MIUS_MACHINE_CONFIG`
+  - `MIUS_SERVER_CONFIG`
+- Server environment overrides:
+  - `MIUS_SERVER_HOST`
+  - `MIUS_SERVER_PORT`
+  - `MIUS_STORAGE_ROOT`
+  - `MIUS_QUEUE_ROOT`
+  - `MIUS_MACHINE_TOKENS_JSON`
+  - `MIUS_IP_ALLOWLIST`
+  - `MIUS_TRUST_X_FORWARDED_FOR`
 
 ---
 

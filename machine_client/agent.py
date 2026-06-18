@@ -28,6 +28,7 @@ class AgentService:
         self._queue_growth = 0.0
         self._message = "STARTING"
         self._test_connection_ok = False
+        self._last_disk_usage_percent = 0
         self._worker = threading.Thread(target=self._run_loop, daemon=True)
         self._log("INFO", "Agent initialized")
         self._worker.start()
@@ -46,7 +47,7 @@ class AgentService:
                 buffer_images=stats["buffer_images"],
                 buffer_capacity=stats["buffer_capacity"],
                 queue_growth_per_sec=self._queue_growth,
-                message=self._message if not self._last_error else f"{self._message}: {self._last_error}",
+                message=self._status_message(),
             )
 
     def log_lines(self) -> list[str]:
@@ -101,7 +102,21 @@ class AgentService:
                 config = self._config
 
             staged = disk_queue.stage_new_images()
-            if staged:
+            stats = disk_queue.stats()
+            self._last_disk_usage_percent = stats["disk_usage_percent"]
+            if self._last_disk_usage_percent >= 90:
+                with self._lock:
+                    self._message = "CRITICAL BUFFER PRESSURE"
+                    self._last_error = "E101 buffer disk above 90%; clear space or adjust cleanup"
+                self._log("ERROR", "Buffer disk above 90%; staging paused")
+                time.sleep(max(config.upload.interval_sec, 1))
+                continue
+            if self._last_disk_usage_percent >= config.storage.max_usage_percent:
+                with self._lock:
+                    self._message = "BUFFER WARNING"
+                    self._last_error = f"E102 buffer disk above {config.storage.max_usage_percent}%"
+                self._log("WARN", "Buffer disk above configured threshold; staging paused")
+            elif staged:
                 self._log("INFO", f"Staged {staged} image(s) from image root")
 
             created = disk_queue.maybe_build_batch()
@@ -111,7 +126,11 @@ class AgentService:
             batch = disk_queue.next_ready_batch()
             if batch is not None:
                 started = time.perf_counter()
-                uploaded, _, detail = server_client.upload_batch(batch.zip_path)
+                uploaded, _, detail = server_client.upload_batch(
+                    batch.zip_path,
+                    batch.checksum_sha256,
+                    batch.idempotency_key,
+                )
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 with self._lock:
                     self._last_latency_ms = latency_ms
@@ -155,3 +174,11 @@ class AgentService:
     def _log(self, level: str, message: str) -> None:
         with self._lock:
             self._logs.appendleft(f"[{level}] {message}")
+
+    def _status_message(self) -> str:
+        base = self._message
+        if self._last_disk_usage_percent >= 90:
+            base = f"{base} ({self._last_disk_usage_percent}% disk)"
+        elif self._last_disk_usage_percent >= self._config.storage.max_usage_percent:
+            base = f"{base} ({self._last_disk_usage_percent}% disk)"
+        return base if not self._last_error else f"{base}: {self._last_error}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import zipfile
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ class BatchRecord:
     manifest_path: Path
     image_count: int
     attempts: int
+    checksum_sha256: str
+    idempotency_key: str
 
 
 class DiskQueue:
@@ -33,6 +36,7 @@ class DiskQueue:
         self._failed_dir = self._root / "failed"
         self._manifests_dir = self._root / "manifests"
         self._ensure_directories()
+        self.recover_inflight()
 
     def _ensure_directories(self) -> None:
         for path in [
@@ -87,12 +91,17 @@ class DiskQueue:
             for file_path in selected:
                 archive.write(file_path, arcname=file_path.name)
 
+        checksum_sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+        idempotency_key = f"{self._config.machine_id}:{batch_id}:{checksum_sha256[:16]}"
+
         manifest = {
             "batch_id": batch_id,
             "machine_id": self._config.machine_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "images": [str(path.name) for path in selected],
             "attempts": 0,
+            "checksum_sha256": checksum_sha256,
+            "idempotency_key": idempotency_key,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return BatchRecord(
@@ -101,6 +110,8 @@ class DiskQueue:
             manifest_path=manifest_path,
             image_count=len(selected),
             attempts=0,
+            checksum_sha256=checksum_sha256,
+            idempotency_key=idempotency_key,
         )
 
     def next_ready_batch(self) -> BatchRecord | None:
@@ -121,6 +132,8 @@ class DiskQueue:
             manifest_path=manifest_path,
             image_count=len(manifest["images"]),
             attempts=int(manifest.get("attempts", 0)),
+            checksum_sha256=str(manifest.get("checksum_sha256", "")),
+            idempotency_key=str(manifest.get("idempotency_key", batch_id)),
         )
 
     def mark_uploaded(self, batch: BatchRecord) -> None:
@@ -149,10 +162,21 @@ class DiskQueue:
         ready_batches = len(list(self._ready_dir.glob("*.zip")))
         inflight_batches = len(list(self._inflight_dir.glob("*.zip")))
         buffer_capacity = max(1000, self._config.upload.batch_size * 50)
+        total, used, _free = shutil.disk_usage(self._root)
+        disk_usage_percent = int((used / total) * 100) if total else 0
         return {
             "staged_images": staged_images,
             "ready_batches": ready_batches,
             "inflight_batches": inflight_batches,
             "buffer_images": staged_images,
             "buffer_capacity": buffer_capacity,
+            "disk_usage_percent": disk_usage_percent,
         }
+
+    def recover_inflight(self) -> int:
+        recovered = 0
+        for path in self._inflight_dir.glob("*.zip"):
+            target = self._ready_dir / path.name
+            path.replace(target)
+            recovered += 1
+        return recovered

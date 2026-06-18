@@ -1,0 +1,15 @@
+[Unit]
+Description=Machine Image Client Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/machine-image-uploader
+Environment=MIUS_MACHINE_CONFIG=/opt/machine-image-uploader/config.json
+ExecStart=/usr/bin/python3 -m machine_client
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

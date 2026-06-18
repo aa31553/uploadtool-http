@@ -24,6 +24,7 @@ class FileQueue:
         self._failed = self._root / "failed"
         for path in [self._pending, self._processing, self._completed, self._failed]:
             path.mkdir(parents=True, exist_ok=True)
+        self.recover_processing_jobs()
 
     def enqueue(self, payload: dict[str, object]) -> str:
         job_id = str(payload["job_id"])
@@ -87,3 +88,15 @@ class FileQueue:
             "per_machine": per_machine,
             "oldest_pending_age_sec": oldest_pending_age,
         }
+
+    def recover_processing_jobs(self) -> int:
+        recovered = 0
+        for path in self._processing.glob("*.json"):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["status"] = "pending"
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            target = self._pending / path.name
+            target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            path.unlink(missing_ok=True)
+            recovered += 1
+        return recovered

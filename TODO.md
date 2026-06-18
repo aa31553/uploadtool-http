@@ -135,3 +135,60 @@
 
 - [ ] Replace file queue with Redis-backed pipeline when multi-process scale is needed
 - [ ] Add real storage retention and cleanup jobs
+
+## Phase 5: Reliability and Fail-Safe Hardening
+
+### Tasks
+
+- [x] Add batch checksum generation and server-side verification
+- [x] Add idempotency key generation and duplicate upload handling
+- [x] Recover machine-side inflight batches on restart
+- [x] Recover server-side processing jobs on restart
+- [x] Add raw and temp cleanup policy execution
+- [x] Add disk pressure guardrails on machine and server
+- [x] Keep backup server fallback and primary failback behavior deterministic
+- [x] Add retry-safe worker failure handling metadata
+- [x] Add operator-facing error codes and recovery guidance in upload path
+
+### File Design
+
+- `machine_client/disk_queue.py`
+  - Inflight recovery, manifest checksum, and disk pressure stats
+- `machine_client/transport.py`
+  - Upload checksum and idempotency headers
+- `server/storage.py`
+  - Checksum validation, idempotency index, and duplicate ACK behavior
+- `server/queue.py`
+  - Recovery of stale processing jobs
+- `server/maintenance.py`
+  - Raw/temp cleanup and storage guardrails
+
+## Phase 6: Security and Deployment Readiness
+
+### Tasks
+
+- [x] Add environment-variable overrides for runtime config
+- [x] Add config path overrides for machine client, server, and worker
+- [x] Add IP allowlist support for plant network
+- [x] Add HTTPS or reverse proxy TLS strategy artifacts
+- [x] Add deployment service unit examples for server and worker
+- [x] Add machine agent service example for startup behavior
+- [x] Add packaging script for deployment bundle
+- [x] Add backup and restore procedure for config and metadata
+- [x] Add operations runbook baseline
+- [x] Add environment and deployment documentation in README
+
+### File Design
+
+- `server/config.py`
+  - Config load plus environment overrides
+- `machine_client/main.py`
+  - Machine config path override support
+- `server/main.py`
+  - Server config path override support
+- `worker/main.py`
+  - Worker config path override support
+- `deploy/systemd/*.service`
+  - Example service units
+- `docs/operations-runbook.md`
+  - Restart, recovery, and validation procedures
