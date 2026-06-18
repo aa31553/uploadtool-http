@@ -41,6 +41,10 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Queue-based decoupling
 - Industrial monitoring dashboard planning
 - Machine-side client configuration UI planning
+- Source image preservation: originals stay in `image_root` and are only copied into the upload buffer
+- Cross-platform server metrics via `psutil`
+- Self-hosted dashboard and API docs (no external CDN required)
+- Separate executable packages for server and machine client
 
 ---
 
@@ -48,34 +52,38 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 
 ### 1. Machine Agent
 
-- Collect images
-- Local buffer storage
-- Batch compression
-- Async upload
+- Collect images from `image_root`
+- Preserve original source files (never moved or deleted)
+- Copy new or modified images into a local buffer
+- Build compressed batches and upload asynchronously
+- Retry failed uploads and support backup server fallback
 
 ### 2. Ingestion Server (FastAPI)
 
 - Receive uploads
-- Validate machine ID
-- Store raw batch
-- Push to queue
+- Validate machine ID and API token
+- Store raw batch files with checksum verification
+- Push jobs into the queue with idempotency protection
+- Serve dashboard, Swagger UI, and ReDoc as self-hosted static assets
 
 ### 3. Queue
 
-- Redis / RabbitMQ
+- File-backed queue by default
+- Optional Redis backend via `queue_backend: redis`
 - Decouple ingestion and processing
 
 ### 4. Worker
 
-- Extract batch
-- Compress images
-- Convert format
-- Save to storage
+- Extract batches into a temp workspace
+- Validate image files
+- Convert to WebP when Pillow is available
+- Save processed files into machine and date directory layout
+- Write failed jobs into an investigation path
 
 ### 5. Monitoring Dashboard
 
 - Machine overview
-- Server metrics
+- Cross-platform server metrics (CPU, RAM, disk, network via `psutil`)
 - Queue monitor
 - Storage status
 - Alert center
@@ -109,13 +117,17 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Machine client UI spec: `docs/machine-client-ui-spec.md`
 - Implementation plan: `docs/implementation-plan.md`
 - Operations runbook: `docs/operations-runbook.md`
+- Executable packaging: `docs/executable-packaging.md`
 
 ---
 
 ## Frontend
 
-- Runtime dashboard: `server/static/dashboard/`
-- Legacy React source/build: `dashboard/`
+- Runtime dashboard: `server/static/dashboard/` (no npm dependency at runtime)
+- Swagger UI bundle: `server/static/vendor/swagger-ui-bundle.js`
+- Swagger UI CSS: `server/static/vendor/swagger-ui.css`
+- ReDoc bundle: `server/static/vendor/redoc.standalone.js`
+- Legacy React source/build (optional dev workspace only): `dashboard/`
 
 ### Optional dashboard development workspace
 
@@ -146,7 +158,13 @@ http://127.0.0.1:8000/redoc
 
 - Systemd unit examples: `deploy/systemd/`
 - TLS reverse proxy example: `deploy/nginx/machine-image-uploader.conf`
-- Packaging script: `deploy/scripts/package-release.sh`
+- Source release archive: `deploy/scripts/package-release.sh`
+- Standalone executable build scripts:
+  - `deploy/scripts/build-server-exe.sh`
+  - `deploy/scripts/build-machine-client-exe.sh`
+- PyInstaller spec files:
+  - `packaging/pyinstaller/server.spec`
+  - `packaging/pyinstaller/machine_client.spec`
 - Backup script: `deploy/scripts/backup-runtime.sh`
 - Smoke test script: `scripts/smoke_test.py`
 - Config path overrides:
@@ -230,6 +248,15 @@ python -m worker
 python -m machine_client
 ```
 
+#### Source image preservation mode
+
+The machine client never moves or deletes files from `image_root`.
+
+- Original photos stay in place
+- New or modified files are copied into the local buffer
+- A per-path signature index (`<buffer_path>/source-index.json`) prevents re-uploading the same source file
+- When a source file content changes, it is uploaded again on the next cycle
+
 ### Run maintenance cleanup once
 
 ```bash
@@ -241,6 +268,28 @@ python -m server.maintenance_main
 ```bash
 python scripts/smoke_test.py http://127.0.0.1:8000 replace-me MC01
 ```
+
+### Build executable packages
+
+```bash
+pip install -r requirements-packaging.txt
+bash deploy/scripts/build-server-exe.sh
+bash deploy/scripts/build-machine-client-exe.sh
+```
+
+Server output:
+
+```text
+dist/uploadtool-server/
+```
+
+Machine client output:
+
+```text
+dist/uploadtool-client/
+```
+
+See `docs/executable-packaging.md` for platform notes and runtime layout.
 
 ---
 
