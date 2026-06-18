@@ -1,0 +1,22 @@
+{
+  "machine_id": "MC01",
+  "server": {
+    "primary": "http://10.0.0.5:8000/upload",
+    "backup": "http://10.0.0.6:8000/upload",
+    "token": "replace-me"
+  },
+  "storage": {
+    "image_root": "D:/MachineData/Images",
+    "buffer_path": "D:/MachineData/Buffer",
+    "max_usage_percent": 80,
+    "auto_cleanup": true,
+    "retention_days": 7
+  },
+  "upload": {
+    "batch_size": 20,
+    "interval_sec": 1,
+    "retry": 5,
+    "compression": "webp",
+    "timeout_sec": 5
+  }
+}

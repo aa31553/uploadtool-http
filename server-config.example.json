@@ -1,0 +1,15 @@
+{
+  "host": "0.0.0.0",
+  "port": 8000,
+  "storage_root": "runtime/server-storage",
+  "temp_root": "runtime/server-temp",
+  "metadata_path": "runtime/server-metadata/upload-events.jsonl",
+  "machines": {
+    "MC01": {
+      "token": "replace-me"
+    },
+    "MC02": {
+      "token": "replace-me"
+    }
+  }
+}

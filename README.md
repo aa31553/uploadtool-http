@@ -107,6 +107,7 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - System design spec: `docs/system-design-spec.md`
 - Dashboard UI/UX design: `docs/ui-ux-dashboard-design.md`
 - Machine client UI spec: `docs/machine-client-ui-spec.md`
+- Implementation plan: `docs/implementation-plan.md`
 
 ---
 

@@ -368,3 +368,22 @@ Suggested settings validation:
 - Disk usage cap must remain at or below 95 percent
 
 For the full machine client UI specification, see `docs/machine-client-ui-spec.md`.
+
+---
+
+## 13. Delivery Plan
+
+Implementation should proceed in phases rather than as a single cutover.
+
+Recommended phase order:
+
+- Foundation and environment
+- Machine client MVP
+- Ingestion server MVP
+- Queue and worker pipeline
+- Monitoring dashboard
+- Reliability hardening
+- Security and deployment readiness
+- Pilot rollout and production expansion
+
+For the detailed execution plan, deliverables, acceptance criteria, and risks, see `docs/implementation-plan.md`.
