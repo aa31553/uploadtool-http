@@ -124,6 +124,14 @@ npm install
 npm run dev
 ```
 
+### Offline dashboard via backend static hosting
+
+After `dashboard/dist` is included in the repo, start only the Python server and open:
+
+```text
+http://127.0.0.1:8000/dashboard/
+```
+
 ---
 
 ## Deployment Notes
@@ -199,6 +207,8 @@ pip install -r requirements-machine-client.txt -r requirements-server.txt -r req
 ```bash
 python -m server
 ```
+
+When `dashboard/dist` exists, the same server also serves the dashboard static site.
 
 ### Run worker
 

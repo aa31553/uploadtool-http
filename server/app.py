@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from server.config import load_server_config
 from server.maintenance import MaintenanceManager
@@ -28,6 +30,15 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Machine Image Uploader Server", version="0.1.0")
     app.include_router(router)
+
+    dashboard_dist = root / "dashboard" / "dist"
+    if dashboard_dist.exists():
+        app.mount("/dashboard", StaticFiles(directory=dashboard_dist, html=True), name="dashboard")
+
+        @app.get("/", include_in_schema=False)
+        def dashboard_root() -> RedirectResponse:
+            return RedirectResponse(url="/dashboard/")
+
     return app
 
 

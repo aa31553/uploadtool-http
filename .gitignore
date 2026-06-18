@@ -10,4 +10,5 @@ config.json
 server-config.json
 runtime/
 dashboard/node_modules/
-dashboard/dist/
+!dashboard/dist/
+!dashboard/dist/**
