@@ -75,7 +75,7 @@ class RuntimeStore:
     def server_metrics(self) -> ServerMetrics:
         config, _queue = self._require_runtime()
         now = datetime.now(timezone.utc)
-        load_avg_1, load_avg_5, load_avg_15 = os.getloadavg()
+        load_avg_1, load_avg_5, load_avg_15 = self._load_average()
         cpu_percent = round(min(100.0, load_avg_1 / max(os.cpu_count() or 1, 1) * 100.0), 1)
         ram_percent = round(self._memory_usage_percent(), 1)
         disk_usage = shutil.disk_usage(config.storage_root)
@@ -281,6 +281,12 @@ class RuntimeStore:
     def _parse_timestamp(self, value: str) -> datetime:
         parsed = datetime.fromisoformat(value)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    def _load_average(self) -> tuple[float, float, float]:
+        try:
+            return os.getloadavg()
+        except (AttributeError, OSError):
+            return (0.0, 0.0, 0.0)
 
     def _job_status_map(self) -> dict[str, dict[str, object]]:
         _config, queue = self._require_runtime()
