@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 )
 
 from machine_client.agent import AgentService
-from machine_client.config import AppConfig, ServerConfig, StorageConfig, UploadConfig
+from machine_client.config import AppConfig, ControlConfig, ServerConfig, StorageConfig, UploadConfig
 from machine_client.validation import validate_config
 
 
@@ -146,10 +146,12 @@ class MainWindow(QMainWindow):
 
         self.server_url = QLineEdit(self._config.server.primary)
         self.backup_server = QLineEdit(self._config.server.backup)
+        self.control_server = QLineEdit(self._config.control.base_url)
         self.token = QLineEdit(self._config.server.token)
         self.token.setEchoMode(QLineEdit.Password)
         layout.addRow("Server URL", self.server_url)
         layout.addRow("Backup Server", self.backup_server)
+        layout.addRow("Control Server", self.control_server)
         layout.addRow("API Token", self.token)
 
         self.timeout_sec = QSpinBox()
@@ -251,6 +253,9 @@ class MainWindow(QMainWindow):
                 primary=self.server_url.text().strip(),
                 backup=self.backup_server.text().strip(),
                 token=self.token.text().strip(),
+            ),
+            control=ControlConfig(
+                base_url=self.control_server.text().strip(),
             ),
             storage=StorageConfig(
                 image_root=self.image_root.text().strip(),

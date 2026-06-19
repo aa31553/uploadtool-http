@@ -58,6 +58,7 @@ class UploadStorage:
 
         stored_path.write_bytes(contents)
         image_count = self._count_images(contents)
+        path_mode = self._detect_path_mode(contents)
         job_id = f"{machine_id}-{timestamp.strftime('%Y%m%dT%H%M%S%f')}"
 
         metadata = {
@@ -69,6 +70,7 @@ class UploadStorage:
             "stored_path": str(stored_path),
             "size_bytes": len(contents),
             "image_count": image_count,
+            "path_mode": path_mode,
             "queued": True,
             "checksum_sha256": actual_checksum,
             "idempotency_key": idempotency_key,
@@ -108,6 +110,19 @@ class UploadStorage:
                 return sum(1 for item in archive.infolist() if not item.is_dir())
         except zipfile.BadZipFile:
             return 0
+
+    def _detect_path_mode(self, contents: bytes) -> str:
+        try:
+            with zipfile.ZipFile(BytesIO(contents), "r") as archive:
+                for item in archive.infolist():
+                    if item.is_dir():
+                        continue
+                    member_name = item.filename.replace("\\", "/")
+                    if "/" in member_name.strip("/"):
+                        return "relative_tree"
+        except zipfile.BadZipFile:
+            return "flat"
+        return "flat"
 
     def _lookup_idempotency(self, idempotency_key: str) -> dict[str, object] | None:
         if not self._idempotency_index_path.exists():

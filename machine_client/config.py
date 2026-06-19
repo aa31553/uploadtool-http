@@ -14,6 +14,11 @@ class ServerConfig:
 
 
 @dataclass
+class ControlConfig:
+    base_url: str
+
+
+@dataclass
 class StorageConfig:
     image_root: str
     buffer_path: str
@@ -35,6 +40,7 @@ class UploadConfig:
 class AppConfig:
     machine_id: str
     server: ServerConfig
+    control: ControlConfig
     storage: StorageConfig
     upload: UploadConfig
 
@@ -48,9 +54,11 @@ def load_config(path: str | Path) -> AppConfig:
 
 
 def app_config_from_dict(data: dict[str, object]) -> AppConfig:
+    control_raw = data.get("control") or {"base_url": _derive_control_base_url(data["server"]["primary"])}
     return AppConfig(
         machine_id=data["machine_id"],
         server=ServerConfig(**data["server"]),
+        control=ControlConfig(**control_raw),
         storage=StorageConfig(**data["storage"]),
         upload=UploadConfig(**data["upload"]),
     )
@@ -58,3 +66,7 @@ def app_config_from_dict(data: dict[str, object]) -> AppConfig:
 
 def save_config(path: str | Path, config: AppConfig) -> None:
     Path(path).write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
+
+
+def _derive_control_base_url(upload_url: str) -> str:
+    return str(upload_url).rsplit("/upload", 1)[0]

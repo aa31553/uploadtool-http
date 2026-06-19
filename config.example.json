@@ -5,6 +5,9 @@
     "backup": "http://10.0.0.6:8000/upload",
     "token": "replace-me"
   },
+  "control": {
+    "base_url": "http://10.0.0.10:8100"
+  },
   "storage": {
     "image_root": "D:/MachineData/Images",
     "buffer_path": "D:/MachineData/Buffer",

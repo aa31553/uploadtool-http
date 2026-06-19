@@ -8,6 +8,7 @@ build/
 *.sqlite3
 config.json
 server-config.json
+control-config.json
 runtime/
 dashboard/node_modules/
 !dashboard/dist/

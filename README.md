@@ -118,12 +118,14 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Implementation plan: `docs/implementation-plan.md`
 - Operations runbook: `docs/operations-runbook.md`
 - Executable packaging: `docs/executable-packaging.md`
+- Multi-server control plane spec: `docs/multi-server-control-plane-spec.md`
 
 ---
 
 ## Frontend
 
 - Runtime dashboard: `server/static/dashboard/` (no npm dependency at runtime)
+- Fleet control dashboard: `control_server/static/dashboard/`
 - Swagger UI bundle: `server/static/vendor/swagger-ui-bundle.js`
 - Swagger UI CSS: `server/static/vendor/swagger-ui.css`
 - ReDoc bundle: `server/static/vendor/redoc.standalone.js`
@@ -170,6 +172,7 @@ http://127.0.0.1:8000/redoc
 - Config path overrides:
   - `MIUS_MACHINE_CONFIG`
   - `MIUS_SERVER_CONFIG`
+  - `MIUS_CONTROL_CONFIG`
 - Server environment overrides:
   - `MIUS_SERVER_HOST`
   - `MIUS_SERVER_PORT`
@@ -225,7 +228,7 @@ http://127.0.0.1:8000/redoc
 ### Install dependencies
 
 ```bash
-pip install -r requirements-machine-client.txt -r requirements-server.txt -r requirements-worker.txt
+pip install -r requirements-machine-client.txt -r requirements-server.txt -r requirements-worker.txt -r requirements-control-server.txt
 ```
 
 ### Run API server
@@ -235,6 +238,18 @@ python -m server
 ```
 
 The same server also serves the local dashboard static site, Swagger UI, and ReDoc without external network resources.
+
+### Run control plane server
+
+```bash
+python -m control_server
+```
+
+The control plane serves the centralized fleet dashboard and auth APIs:
+
+```text
+http://127.0.0.1:8100/dashboard/
+```
 
 ### Run worker
 

@@ -35,12 +35,17 @@ class ServerClient:
 
     def login(self, employee_id: str, password: str) -> AuthResult:
         last_error = "No server configured"
-        for base_url in self._base_urls():
+        for base_url in self._control_urls():
             try:
                 with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
                     response = client.post(
                         f"{base_url}/api/auth/login",
-                        json={"employee_id": employee_id, "password": password},
+                        json={
+                            "employee_id": employee_id,
+                            "password": password,
+                            "client_type": "machine-client",
+                            "client_id": self._config.machine_id,
+                        },
                     )
                 response.raise_for_status()
                 payload = response.json()
@@ -57,7 +62,7 @@ class ServerClient:
         return AuthResult(ok=False, message=last_error)
 
     def logout(self, token: str) -> None:
-        for base_url in self._base_urls():
+        for base_url in self._control_urls():
             try:
                 with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
                     client.post(
@@ -151,7 +156,7 @@ class ServerClient:
 
     def _post_auth_action(self, path: str, token: str, payload: dict[str, str]) -> tuple[bool, str]:
         last_error = "No server configured"
-        for base_url in self._base_urls():
+        for base_url in self._control_urls():
             try:
                 with httpx.Client(timeout=self._config.upload.timeout_sec) as client:
                     response = client.post(
@@ -174,3 +179,9 @@ class ServerClient:
 
     def _base_urls(self) -> list[str]:
         return [url.rsplit("/upload", 1)[0] for url in self._upload_urls()]
+
+    def _control_urls(self) -> list[str]:
+        base_url = self._config.control.base_url.strip()
+        if base_url:
+            return [base_url.rstrip("/")]
+        return self._base_urls()

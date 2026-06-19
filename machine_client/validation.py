@@ -16,6 +16,9 @@ def validate_config(config: AppConfig) -> list[str]:
         if value and not _is_valid_url(value):
             errors.append(f"{label} is invalid")
 
+    if config.control.base_url and not _is_valid_url(config.control.base_url):
+        errors.append("Control server URL is invalid")
+
     if not config.server.token.strip():
         errors.append("API token is required")
 

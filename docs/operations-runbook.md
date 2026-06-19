@@ -2,16 +2,19 @@
 
 ## Startup Order
 
-1. Start `server`
-2. Verify `GET /healthz` and `GET /readyz`
-3. Start `worker`
-4. Start machine client agents
-5. Open `dashboard/` and confirm live updates
+1. Start `control_server`
+2. Start each ingestion `server`
+3. Verify `GET /healthz` and `GET /readyz` on each ingestion server
+4. Start each `worker`
+5. Register ingestion servers in the control plane
+6. Start machine client agents
+7. Open control-plane `dashboard/` and confirm fleet updates
 
 ## Configuration Overrides
 
 - Machine client config path: `MIUS_MACHINE_CONFIG`
 - Server config path: `MIUS_SERVER_CONFIG`
+- Control server config path: `MIUS_CONTROL_CONFIG`
 - Server host override: `MIUS_SERVER_HOST`
 - Server port override: `MIUS_SERVER_PORT`
 - Storage root override: `MIUS_STORAGE_ROOT`
@@ -19,12 +22,31 @@
 - Machine tokens JSON override: `MIUS_MACHINE_TOKENS_JSON`
 - IP allowlist override: `MIUS_IP_ALLOWLIST`
 - Trust proxy forwarding: `MIUS_TRUST_X_FORWARDED_FOR`
+- Control plane allowlist override: `MIUS_CONTROL_IP_ALLOWLIST`
 
 ## Network Security
 
 - Upload and dashboard access can be restricted with `ip_allowlist`
 - If the server is behind Nginx or another reverse proxy, set `MIUS_TRUST_X_FORWARDED_FOR=true`
 - Example TLS reverse proxy config is provided at `deploy/nginx/machine-image-uploader.conf`
+
+## Centralized Login
+
+- Machine client operator login can use the control plane via `control.base_url` in `config.json`
+- Bootstrap control-plane admin credentials come from `control-config.json`
+- Change the bootstrap admin password after first login
+
+## Fleet Monitoring
+
+- The control plane polls each registered ingestion server and aggregates:
+  - machine status
+  - server metrics
+  - queue status
+  - storage status
+  - worker status
+  - alerts
+- Preferred local endpoint for polling is `GET /api/local/snapshot`
+- If unavailable, the control plane falls back to the current per-endpoint polling APIs
 
 ## Upload Validation Behavior
 
@@ -42,12 +64,17 @@
 - Machine client moves `inflight/` batches back to `ready/` on startup
 - Server queue moves `processing/` jobs back to `pending/` on startup
 - Worker resumes from queue state files without rebuilding metadata
+- Machine client path-preserving scan state is persisted in:
+  - `source-index.json`
+  - `directory-index.json`
+  - `staged-index.json`
 
 ## Cleanup Policy
 
 - Raw files older than `raw_retention_days` are deleted during server startup maintenance
 - Temp files older than `temp_retention_hours` are deleted during server startup maintenance
 - Sent client batches older than client retention are deleted locally
+- Staged nested directories should be cleaned only after the staged file is removed and the directory is empty
 
 ## Disk Pressure Guidance
 

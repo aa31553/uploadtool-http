@@ -13,6 +13,9 @@ class MachineAuth:
 
 @dataclass
 class ServerConfig:
+    server_id: str
+    server_name: str
+    site: str
     host: str
     port: int
     queue_backend: str
@@ -46,6 +49,9 @@ def load_server_config(path: str | Path) -> ServerConfig:
     machine_tokens_json = os.environ.get("MIUS_MACHINE_TOKENS_JSON")
     machines_raw = json.loads(machine_tokens_json) if machine_tokens_json else data["machines"]
     return ServerConfig(
+        server_id=os.environ.get("MIUS_SERVER_ID", data.get("server_id", "srv-local")),
+        server_name=os.environ.get("MIUS_SERVER_NAME", data.get("server_name", "Local Ingestion Server")),
+        site=os.environ.get("MIUS_SERVER_SITE", data.get("site", "default")),
         host=os.environ.get("MIUS_SERVER_HOST", data["host"]),
         port=int(os.environ.get("MIUS_SERVER_PORT", data["port"])),
         queue_backend=os.environ.get("MIUS_QUEUE_BACKEND", data.get("queue_backend", "file")),

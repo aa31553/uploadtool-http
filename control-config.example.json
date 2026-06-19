@@ -1,0 +1,21 @@
+{
+  "host": "0.0.0.0",
+  "port": 8100,
+  "state_root": "runtime/control-plane",
+  "users_path": "runtime/control-plane/users.json",
+  "sessions_path": "runtime/control-plane/sessions.json",
+  "servers_path": "runtime/control-plane/servers.json",
+  "snapshots_path": "runtime/control-plane/snapshots.json",
+  "audit_log_path": "runtime/control-plane/audit-log.jsonl",
+  "bootstrap_admin_employee_id": "admin",
+  "bootstrap_admin_password": "change-me-now",
+  "access_token_ttl_sec": 900,
+  "refresh_token_ttl_sec": 28800,
+  "poll_default_interval_sec": 5,
+  "request_timeout_sec": 3,
+  "ip_allowlist": [
+    "127.0.0.1",
+    "::1"
+  ],
+  "trust_x_forwarded_for": false
+}

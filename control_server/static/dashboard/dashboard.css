@@ -1,0 +1,65 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0a1620;
+  color: #e6eef5;
+}
+
+.app-shell {
+  padding: 20px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #1a2b3b;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: #102130;
+  border: 1px solid #20394c;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.card h3,
+.card h4,
+.card p {
+  margin: 0 0 8px;
+}
+
+.list {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.list pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  .list {
+    grid-template-columns: 1fr;
+  }
+}

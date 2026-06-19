@@ -242,6 +242,38 @@ def get_worker_status() -> WorkerState:
     return store.worker_state()
 
 
+@router.get("/api/local/server-info")
+def get_local_server_info() -> dict[str, object]:
+    config, _, _, _ = _require_runtime()
+    return {
+        "server_id": config.server_id,
+        "name": config.server_name,
+        "site": config.site,
+        "version": "0.1.0",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/api/local/snapshot")
+def get_local_snapshot() -> dict[str, object]:
+    config, _, _, _ = _require_runtime()
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "server_info": {
+            "server_id": config.server_id,
+            "name": config.server_name,
+            "site": config.site,
+        },
+        "machines": [machine.model_dump(mode="json") for machine in store.machines()],
+        "server_metrics": store.server_metrics().model_dump(mode="json"),
+        "queue": store.queue_status().model_dump(mode="json"),
+        "storage": store.storage_status().model_dump(mode="json"),
+        "worker": store.worker_state().model_dump(mode="json"),
+        "alerts": [alert.model_dump(mode="json") for alert in store.alerts()],
+        "image_flow": [item.model_dump(mode="json") for item in store.recent_batches(limit=20)],
+    }
+
+
 @router.websocket("/ws/live")
 async def live_updates(websocket: WebSocket) -> None:
     client_host = websocket.client.host if websocket.client else None
