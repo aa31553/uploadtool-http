@@ -26,6 +26,9 @@ upload and compression workflow.
 
 ```text
 Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
+                 ^
+                 |
+          Control Plane / Fleet Dashboard
 ```
 
 ---
@@ -42,9 +45,12 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Industrial monitoring dashboard planning
 - Machine-side client configuration UI planning
 - Source image preservation: originals stay in `image_root` and are only copied into the upload buffer
+- Recursive segmented scan under `image_root` with `source-index`, `directory-index`, and `staged-index`
+- Relative path preservation from machine source tree through upload and processed storage
 - Cross-platform server metrics via `psutil`
 - Self-hosted dashboard and API docs (no external CDN required)
 - Separate executable packages for server and machine client
+- Centralized control plane for login, server registry, fleet monitoring, and unified dashboard
 
 ---
 
@@ -55,6 +61,8 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Collect images from `image_root`
 - Preserve original source files (never moved or deleted)
 - Copy new or modified images into a local buffer
+- Recursively scan nested folders using segmented scan units
+- Preserve relative source path in staged files, manifests, and uploaded batches
 - Build compressed batches and upload asynchronously
 - Retry failed uploads and support backup server fallback
 
@@ -77,7 +85,7 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Extract batches into a temp workspace
 - Validate image files
 - Convert to WebP when Pillow is available
-- Save processed files into machine and date directory layout
+- Save processed files into `processed/<machine>/<relative_path>`
 - Write failed jobs into an investigation path
 
 ### 5. Monitoring Dashboard
@@ -91,9 +99,18 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 ### 6. Machine Client UI
 
 - Server endpoint configuration
+- Control plane endpoint configuration
 - Local storage path configuration
 - Local buffer monitoring
 - Retry and log visibility
+- Centralized operator login, password change, and admin account actions
+
+### 7. Control Plane
+
+- Centralized user authentication and authorization
+- Server registry and fleet polling
+- Unified dashboard APIs and WebSocket updates
+- Aggregated machine, queue, worker, storage, and alert views
 
 ---
 
@@ -102,9 +119,9 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 ```text
 /storage/
   MACHINE_ID/
-    YYYY/
-      MM/
-        DD/
+    B07-01/
+      LOT001/
+        NG/
           image.webp
 ```
 
@@ -119,6 +136,7 @@ Machine Agent -> FastAPI Ingestion -> Queue -> Worker -> Storage
 - Operations runbook: `docs/operations-runbook.md`
 - Executable packaging: `docs/executable-packaging.md`
 - Multi-server control plane spec: `docs/multi-server-control-plane-spec.md`
+- Path-preserving upload change spec: `docs/path-preserving-upload-change-spec.md`
 
 ---
 
@@ -269,6 +287,12 @@ The machine client never moves or deletes files from `image_root`.
 
 - Original photos stay in place
 - New or modified files are copied into the local buffer
+- Recursive segmented scan discovers images inside nested folders under `image_root`
+- Relative path is preserved through:
+  - `source-index.json`
+  - `directory-index.json`
+  - `staged-index.json`
+  - batch manifest and zip entries
 - A per-path signature index (`<buffer_path>/source-index.json`) prevents re-uploading the same source file
 - When a source file content changes, it is uploaded again on the next cycle
 

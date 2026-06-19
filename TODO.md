@@ -75,7 +75,7 @@
 - [x] Build worker loop that claims jobs from queue
 - [x] Extract uploaded zip into temp workspace
 - [x] Validate extracted image files and manifest fields
-- [x] Write processed files into `/processed/<machine>/<YYYY>/<MM>/<DD>/`
+- [x] Write processed files into `/processed/<machine>/<relative_path>/`
 - [x] Record worker completion and failure metadata
 - [x] Move failed jobs into investigation path with retry tracking
 

@@ -96,6 +96,8 @@ The existing system uses SMB shared folders for image upload, which causes the f
 #### Responsibilities
 
 - Local image buffering
+- Recursive segmented scan under `image_root`
+- Preserve relative source paths through batching and upload
 - Batch compression (zip/zstd)
 - Asynchronous upload
 - Failed upload retry queue
@@ -107,7 +109,7 @@ The existing system uses SMB shared folders for image upload, which causes the f
 Capture Image
    |
    v
-Write to local buffer
+Write to local buffer with relative path metadata
    |
    v
 Batch every N seconds / N images
@@ -126,6 +128,8 @@ Server ACK -> delete local batch
 
 - Async thread or asyncio based implementation
 - Disk-backed local queue
+- Segmented recursive scan to reduce full-tree scan cost
+- Source and directory indexes to avoid repeated filesystem work
 - Upload timeout retry with exponential backoff
 - Network failure fallback storage
 
@@ -179,7 +183,7 @@ POST /upload
 - Compress images
 - Convert formats (JPEG -> WebP)
 - Organize directory structure
-- Save processed files into storage
+- Save processed files into `processed/<machine>/<relative_path>`
 
 #### Compression Strategy
 
@@ -194,9 +198,9 @@ POST /upload
 ```text
 /storage/
   MC01/
-    2026/
-      06/
-        18/
+    B07-01/
+      LOT001/
+        NG/
           img_00001.webp
 ```
 

@@ -25,6 +25,7 @@ The machine-side UI is a lightweight edge agent interface for local operation an
 
 ```text
 Machine Client UI
+|- Account
 |- Dashboard
 |- Upload Settings
 |- Storage Settings
@@ -112,6 +113,7 @@ Configure the server endpoints used for image upload.
 |-------|-------------|
 | Server URL | Primary upload API endpoint |
 | Backup Server | Secondary upload endpoint |
+| Control Server | Centralized auth and control plane endpoint |
 | API Token | Authentication token |
 | Timeout | Request timeout in seconds |
 
@@ -123,6 +125,9 @@ Server URL:
 
 Backup Server:
 [ http://10.0.0.6:8000/upload ]
+
+Control Server:
+[ http://10.0.0.10:8100 ]
 
 API Token:
 [ *************** ]
@@ -142,6 +147,27 @@ The `Test Connection` action should:
 - Upload one test image
 - Return measured latency
 - Validate the API token
+
+---
+
+## 5A. Account
+
+### 5A.1 Purpose
+
+Protect settings from general operators and route user authentication through the centralized control plane.
+
+### 5A.2 Functions
+
+- Login with employee ID and password
+- Logout
+- Change current password
+- Admin-only user registration
+- Admin-only password reset
+
+### 5A.3 UX Rules
+
+- Upload, network, and storage settings remain locked until login succeeds
+- Admin-only actions are visible or enabled only for admin users
 
 ---
 
