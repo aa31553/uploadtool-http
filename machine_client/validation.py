@@ -31,6 +31,12 @@ def validate_config(config: AppConfig) -> list[str]:
     if not buffer_root.is_dir():
         errors.append("Buffer path is invalid")
 
+    if image_root.exists() and buffer_root.exists():
+        if _is_relative_to(buffer_root, image_root):
+            errors.append("Buffer path must not be inside image root")
+        if _is_relative_to(image_root, buffer_root):
+            errors.append("Image root must not be inside buffer path")
+
     if config.storage.max_usage_percent > 95:
         errors.append("Max disk usage must be 95 or below")
 
@@ -49,3 +55,11 @@ def validate_config(config: AppConfig) -> list[str]:
 def _is_valid_url(value: str) -> bool:
     parsed = urlparse(value)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False

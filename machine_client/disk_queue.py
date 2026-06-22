@@ -58,6 +58,7 @@ class DiskQueue:
         image_root = Path(self._config.storage.image_root)
         if not image_root.exists():
             return 0
+        excluded_roots = self._excluded_scan_roots(image_root)
 
         source_index = self._load_source_index()
         directory_index = self._load_directory_index()
@@ -69,6 +70,8 @@ class DiskQueue:
 
         for root in selected_roots:
             for path in self._iter_scan_root_files(root):
+                if self._is_under_any(path, excluded_roots):
+                    continue
                 if path.suffix.lower() not in IMAGE_EXTENSIONS:
                     continue
                 if now - path.stat().st_mtime < min_age_seconds:
@@ -298,6 +301,7 @@ class DiskQueue:
         self._staged_index_path.write_text(json.dumps(staged_index, indent=2), encoding="utf-8")
 
     def _collect_scan_roots(self, image_root: Path) -> list[dict[str, object]]:
+        excluded_roots = self._excluded_scan_roots(image_root)
         roots: list[dict[str, object]] = []
         direct_files = [path for path in sorted(image_root.iterdir()) if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS]
         if direct_files:
@@ -311,6 +315,8 @@ class DiskQueue:
             )
 
         for top_level in sorted(path for path in image_root.iterdir() if path.is_dir()):
+            if self._is_under_any(top_level, excluded_roots):
+                continue
             direct_image_files = [path for path in sorted(top_level.iterdir()) if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS]
             if direct_image_files:
                 roots.append(
@@ -322,7 +328,7 @@ class DiskQueue:
                     }
                 )
 
-            child_dirs = sorted(path for path in top_level.iterdir() if path.is_dir())
+            child_dirs = [path for path in sorted(top_level.iterdir()) if path.is_dir() and not self._is_under_any(path, excluded_roots)]
             if child_dirs:
                 for child in child_dirs:
                     roots.append(
@@ -375,6 +381,23 @@ class DiskQueue:
         if root["kind"] == "direct_files":
             return [item for item in sorted(path.iterdir()) if item.is_file()]
         return [item for item in sorted(path.rglob("*")) if item.is_file()]
+
+    def _excluded_scan_roots(self, image_root: Path) -> list[Path]:
+        excluded: list[Path] = []
+        buffer_root = Path(self._config.storage.buffer_path)
+        if self._is_relative_to(buffer_root, image_root):
+            excluded.append(buffer_root)
+        return excluded
+
+    def _is_under_any(self, path: Path, roots: list[Path]) -> bool:
+        return any(self._is_relative_to(path, root) for root in roots)
+
+    def _is_relative_to(self, path: Path, base: Path) -> bool:
+        try:
+            path.resolve().relative_to(base.resolve())
+            return True
+        except ValueError:
+            return False
 
     def _scan_root_signature(self, path: Path, direct_files_only: bool = False) -> str:
         stat = path.stat()
