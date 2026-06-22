@@ -1,5 +1,6 @@
 (function () {
   const app = document.getElementById('app')
+  let currentView = ''
 
   async function getJson(path) {
     const token = window.localStorage.getItem('control_access_token') || ''
@@ -29,6 +30,7 @@
   }
 
   function render(state) {
+    currentView = 'dashboard'
     app.innerHTML = `
       <div class="app-shell">
         <div class="topbar">
@@ -62,13 +64,19 @@
   }
 
   function renderLogin(message) {
+    const employeeId = document.getElementById('employee-id')?.value || ''
+    const password = document.getElementById('password')?.value || ''
+    if (currentView === 'login' && !message) {
+      return
+    }
+    currentView = 'login'
     app.innerHTML = `
       <div class="app-shell">
         <div class="card">
           <h3>Control Dashboard Login</h3>
           ${message ? `<p>${escapeHtml(message)}</p>` : ''}
-          <p><input id="employee-id" placeholder="Employee ID" /></p>
-          <p><input id="password" type="password" placeholder="Password" /></p>
+          <p><input id="employee-id" placeholder="Employee ID" value="${escapeHtml(employeeId)}" /></p>
+          <p><input id="password" type="password" placeholder="Password" value="${escapeHtml(password)}" /></p>
           <p><button id="login-button">Login</button></p>
         </div>
       </div>
