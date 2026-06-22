@@ -46,16 +46,43 @@ body {
 .list {
   margin-top: 20px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
 }
 
-.list pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  max-height: 320px;
+.stack {
+  display: grid;
+  gap: 12px;
+  max-height: 420px;
   overflow: auto;
+}
+
+.item-card {
+  border: 1px solid #20394c;
+  border-radius: 10px;
+  padding: 12px;
+  background: #0d1b28;
+}
+
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+.kv span:first-child,
+.muted {
+  color: #9bb2c8;
 }
 
 @media (max-width: 900px) {
