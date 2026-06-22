@@ -73,11 +73,11 @@ class ServerClient:
             except Exception:  # noqa: BLE001
                 continue
 
-    def register_user(self, token: str, employee_id: str, password: str, role: str) -> tuple[bool, str]:
+    def register_user(self, token: str, employee_id: str, display_name: str, password: str, role: str) -> tuple[bool, str]:
         return self._post_auth_action(
             "/api/auth/register",
             token,
-            {"employee_id": employee_id, "password": password, "role": role},
+            {"employee_id": employee_id, "display_name": display_name, "password": password, "role": role},
         )
 
     def change_password(self, token: str, current_password: str, new_password: str) -> tuple[bool, str]:

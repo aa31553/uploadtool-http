@@ -103,24 +103,33 @@ class MachineDetail(BaseModel):
 
 class AuthUser(BaseModel):
     employee_id: str
+    display_name: str
     role: str
+    enabled: bool = True
 
 
 class LoginRequest(BaseModel):
     employee_id: str
     password: str
+    client_type: str = "dashboard"
+    client_id: str = ""
 
 
 class LoginResponse(BaseModel):
+    access_token: str
     token: str
+    token_type: str = "bearer"
     expires_at: datetime
+    expires_in_sec: int
+    refresh_token: str = ""
     user: AuthUser
 
 
 class RegisterUserRequest(BaseModel):
     employee_id: str
+    display_name: str
     password: str
-    role: str = "user"
+    role: str = "operator"
 
 
 class ChangePasswordRequest(BaseModel):

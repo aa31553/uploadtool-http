@@ -95,12 +95,12 @@ class AgentService:
             self._server_client.logout(token)
             self._log("INFO", f"Logged out {employee_id}")
 
-    def register_user(self, employee_id: str, password: str, role: str) -> tuple[bool, str]:
+    def register_user(self, employee_id: str, display_name: str, password: str, role: str) -> tuple[bool, str]:
         with self._lock:
             token = self._auth_token
         if not token:
             return False, "Login required"
-        ok, message = self._server_client.register_user(token, employee_id, password, role)
+        ok, message = self._server_client.register_user(token, employee_id, display_name, password, role)
         self._log("INFO" if ok else "ERROR", message)
         return ok, message
 

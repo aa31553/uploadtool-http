@@ -14,7 +14,7 @@
   "metadata_path": "runtime/server-metadata/upload-events.jsonl",
   "worker_state_path": "runtime/server-metadata/worker-state.json",
   "idempotency_index_path": "runtime/server-metadata/idempotency-index.json",
-  "user_store_path": "runtime/server-metadata/users.json",
+  "user_store_path": "runtime/control-plane/users.json",
   "bootstrap_admin_employee_id": "admin",
   "bootstrap_admin_password": "change-me-now",
   "raw_retention_days": 7,

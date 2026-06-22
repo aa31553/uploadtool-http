@@ -16,6 +16,7 @@ from server.config import ServerConfig
 
 PBKDF2_ITERATIONS = 200000
 SESSION_TTL_HOURS = 8
+VALID_ROLES = {"admin", "supervisor", "operator"}
 
 
 @dataclass
@@ -24,6 +25,7 @@ class AuthSession:
     role: str
     token: str
     expires_at: datetime
+    token_version: int
 
 
 class UserAuthService:
@@ -45,12 +47,17 @@ class UserAuthService:
             raise HTTPException(status_code=401, detail="Invalid employee ID or password")
         session = AuthSession(
             employee_id=employee_id,
-            role=str(user.get("role", "user")),
+            role=str(user.get("role", "operator")),
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(timezone.utc) + timedelta(hours=SESSION_TTL_HOURS),
+            token_version=int(user.get("token_version", 1)),
         )
         with self._lock:
             self._sessions[session.token] = session
+            users = self._load_users_unlocked()
+            if employee_id in users:
+                users[employee_id]["last_login_at"] = datetime.now(timezone.utc).isoformat()
+                self._save_users_unlocked(users)
         return session
 
     def logout(self, token: str) -> None:
@@ -67,15 +74,23 @@ class UserAuthService:
             if session.expires_at <= datetime.now(timezone.utc):
                 self._sessions.pop(token, None)
                 raise HTTPException(status_code=401, detail="Session expired")
+            user = self._user_from_map_or_401(self._load_users_unlocked(), session.employee_id)
+            if not bool(user.get("enabled", True)):
+                self._sessions.pop(token, None)
+                raise HTTPException(status_code=403, detail="User is disabled")
+            if int(user.get("token_version", 1)) != int(session.token_version):
+                self._sessions.pop(token, None)
+                raise HTTPException(status_code=401, detail="Session revoked")
             return session
 
-    def register_user(self, actor: AuthSession, employee_id: str, password: str, role: str) -> dict[str, object]:
+    def register_user(self, actor: AuthSession, employee_id: str, display_name: str, password: str, role: str) -> dict[str, object]:
         self._require_admin(actor)
         employee_id = employee_id.strip()
+        display_name = display_name.strip() or employee_id
         password = password.strip()
-        role = role.strip().lower() or "user"
-        if role not in {"admin", "user"}:
-            raise HTTPException(status_code=400, detail="Role must be admin or user")
+        role = role.strip().lower() or "operator"
+        if role not in VALID_ROLES:
+            raise HTTPException(status_code=400, detail="Role must be admin, supervisor, or operator")
         self._validate_credentials(employee_id, password)
         with self._lock:
             users = self._load_users_unlocked()
@@ -85,12 +100,19 @@ class UserAuthService:
             now = datetime.now(timezone.utc).isoformat()
             users[employee_id] = {
                 "employee_id": employee_id,
+                "display_name": display_name,
                 "role": role,
+                "enabled": True,
+                "token_version": 1,
+                "site_ids": [],
+                "server_ids": [],
+                "machine_ids": [],
                 "password_hash": password_hash,
                 "password_salt": password_salt,
                 "created_at": now,
                 "updated_at": now,
                 "password_changed_at": now,
+                "last_login_at": None,
             }
             self._save_users_unlocked(users)
             return users[employee_id]
@@ -112,6 +134,7 @@ class UserAuthService:
             user["password_salt"] = password_salt
             user["updated_at"] = now
             user["password_changed_at"] = now
+            user["token_version"] = int(user.get("token_version", 1)) + 1
             self._save_users_unlocked(users)
 
     def reset_password(self, actor: AuthSession, employee_id: str, new_password: str) -> None:
@@ -128,10 +151,17 @@ class UserAuthService:
             user["password_salt"] = password_salt
             user["updated_at"] = now
             user["password_changed_at"] = now
+            user["token_version"] = int(user.get("token_version", 1)) + 1
             self._save_users_unlocked(users)
 
-    def user_summary(self, session: AuthSession) -> dict[str, str]:
-        return {"employee_id": session.employee_id, "role": session.role}
+    def user_summary(self, session: AuthSession) -> dict[str, object]:
+        user = self._user_or_401(session.employee_id)
+        return {
+            "employee_id": session.employee_id,
+            "display_name": str(user.get("display_name", session.employee_id)),
+            "role": session.role,
+            "enabled": bool(user.get("enabled", True)),
+        }
 
     def _ensure_bootstrap_admin(self) -> None:
         with self._lock:
@@ -142,12 +172,19 @@ class UserAuthService:
                 now = datetime.now(timezone.utc).isoformat()
                 users[admin_id] = {
                     "employee_id": admin_id,
+                    "display_name": "Bootstrap Admin",
                     "role": "admin",
+                    "enabled": True,
+                    "token_version": 1,
+                    "site_ids": [],
+                    "server_ids": [],
+                    "machine_ids": [],
                     "password_hash": password_hash,
                     "password_salt": password_salt,
                     "created_at": now,
                     "updated_at": now,
                     "password_changed_at": now,
+                    "last_login_at": None,
                 }
                 self._save_users_unlocked(users)
 

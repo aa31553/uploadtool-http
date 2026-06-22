@@ -335,7 +335,7 @@ class MainWindow(QMainWindow):
         if dialog.exec_() != QDialog.Accepted:
             return
         employee_id, password, role, _current_password = dialog.values()
-        ok, message = self._agent.register_user(employee_id, password, role)
+        ok, message = self._agent.register_user(employee_id, employee_id, password, role)
         if ok:
             QMessageBox.information(self, "Register User", message)
             return
@@ -402,7 +402,7 @@ class CredentialsDialog(QDialog):
         self.role_input: QComboBox | None = None
         if include_role:
             self.role_input = QComboBox()
-            self.role_input.addItems(["user", "admin"])
+            self.role_input.addItems(["operator", "supervisor", "admin"])
             layout.addRow("Role", self.role_input)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -414,6 +414,6 @@ class CredentialsDialog(QDialog):
         return (
             self.employee_id_input.text().strip(),
             self.password_input.text().strip(),
-            self.role_input.currentText() if self.role_input is not None else "user",
+            self.role_input.currentText() if self.role_input is not None else "operator",
             self.current_password_input.text().strip() if self.current_password_input is not None else "",
         )

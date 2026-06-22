@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from math import ceil
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 
@@ -131,10 +132,20 @@ def login(request: Request, payload: LoginRequest) -> LoginResponse:
     enforce_ip_allowlist(resolve_client_host(request))
     _, _, _, auth = _require_runtime()
     session = auth.login(payload.employee_id, payload.password)
+    user = auth.user_summary(session)
+    ttl_seconds = max(int(ceil((session.expires_at - datetime.now(timezone.utc)).total_seconds())), 0)
     return LoginResponse(
+        access_token=session.token,
         token=session.token,
+        token_type="bearer",
         expires_at=session.expires_at,
-        user=AuthUser(employee_id=session.employee_id, role=session.role),
+        expires_in_sec=ttl_seconds,
+        user=AuthUser(
+            employee_id=str(user["employee_id"]),
+            display_name=str(user["display_name"]),
+            role=str(user["role"]),
+            enabled=bool(user["enabled"]),
+        ),
     )
 
 
@@ -153,7 +164,13 @@ def auth_me(request: Request, authorization: str | None = Header(default=None, a
     enforce_ip_allowlist(resolve_client_host(request))
     _, _, _, auth = _require_runtime()
     session = auth.require_session(_bearer_token(authorization))
-    return AuthUser(employee_id=session.employee_id, role=session.role)
+    user = auth.user_summary(session)
+    return AuthUser(
+        employee_id=str(user["employee_id"]),
+        display_name=str(user["display_name"]),
+        role=str(user["role"]),
+        enabled=bool(user["enabled"]),
+    )
 
 
 @router.post("/api/auth/register", response_model=AccountActionResponse)
@@ -165,11 +182,16 @@ def register_user(
     enforce_ip_allowlist(resolve_client_host(request))
     _, _, _, auth = _require_runtime()
     actor = auth.require_session(_bearer_token(authorization))
-    user = auth.register_user(actor, payload.employee_id, payload.password, payload.role)
+    user = auth.register_user(actor, payload.employee_id, payload.display_name, payload.password, payload.role)
     return AccountActionResponse(
         success=True,
         message="User registered",
-        user=AuthUser(employee_id=str(user["employee_id"]), role=str(user["role"])),
+        user=AuthUser(
+            employee_id=str(user["employee_id"]),
+            display_name=str(user.get("display_name", user["employee_id"])),
+            role=str(user["role"]),
+            enabled=bool(user.get("enabled", True)),
+        ),
     )
 
 
