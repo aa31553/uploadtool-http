@@ -34,6 +34,8 @@ class UploadConfig:
     retry: int
     compression: str
     timeout_sec: int
+    stage_copy_limit_per_cycle: int
+    index_existing_on_startup_only: bool
 
 
 @dataclass
@@ -55,12 +57,15 @@ def load_config(path: str | Path) -> AppConfig:
 
 def app_config_from_dict(data: dict[str, object]) -> AppConfig:
     control_raw = data.get("control") or {"base_url": _derive_control_base_url(data["server"]["primary"])}
+    upload_raw = dict(data["upload"])
+    upload_raw.setdefault("stage_copy_limit_per_cycle", 100)
+    upload_raw.setdefault("index_existing_on_startup_only", False)
     return AppConfig(
         machine_id=data["machine_id"],
         server=ServerConfig(**data["server"]),
         control=ControlConfig(**control_raw),
         storage=StorageConfig(**data["storage"]),
-        upload=UploadConfig(**data["upload"]),
+        upload=UploadConfig(**upload_raw),
     )
 
 

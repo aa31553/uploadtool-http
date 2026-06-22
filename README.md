@@ -295,6 +295,14 @@ The machine client never moves or deletes files from `image_root`.
   - batch manifest and zip entries
 - A per-path signature index (`<buffer_path>/source-index.json`) prevents re-uploading the same source file
 - When a source file content changes, it is uploaded again on the next cycle
+- Startup/backfill tuning options:
+  - `upload.stage_copy_limit_per_cycle`: limits how many files are queued for staging each scan cycle to reduce startup IO spikes
+  - `upload.index_existing_on_startup_only`: on first startup without an existing `source-index.json`, records current files into the index without backfilling old images into the upload buffer
+
+Recommended for machines with a large historical image tree:
+
+- Set `upload.stage_copy_limit_per_cycle` to a conservative value such as `20` to `100`
+- Set `upload.index_existing_on_startup_only` to `true` if only newly created images should upload after deployment
 
 ### Run maintenance cleanup once
 

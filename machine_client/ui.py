@@ -130,6 +130,13 @@ class MainWindow(QMainWindow):
         self.compression.addItems(["webp", "jpeg", "none"])
         self.compression.setCurrentText(self._config.upload.compression)
 
+        self.stage_copy_limit = QSpinBox()
+        self.stage_copy_limit.setRange(1, 100000)
+        self.stage_copy_limit.setValue(self._config.upload.stage_copy_limit_per_cycle)
+
+        self.index_existing_on_startup_only = QCheckBox("Enable")
+        self.index_existing_on_startup_only.setChecked(self._config.upload.index_existing_on_startup_only)
+
         save_button = QPushButton("Save Settings")
         save_button.clicked.connect(self._save_upload_settings)
 
@@ -137,6 +144,8 @@ class MainWindow(QMainWindow):
         layout.addRow("Interval (sec)", self.interval_sec)
         layout.addRow("Retry Count", self.retry_count)
         layout.addRow("Compression", self.compression)
+        layout.addRow("Stage/Copy Limit", self.stage_copy_limit)
+        layout.addRow("Index Existing Only On Startup", self.index_existing_on_startup_only)
         layout.addRow(save_button)
         return widget
 
@@ -270,6 +279,8 @@ class MainWindow(QMainWindow):
                 retry=self.retry_count.value(),
                 compression=self.compression.currentText(),
                 timeout_sec=self.timeout_sec.value(),
+                stage_copy_limit_per_cycle=self.stage_copy_limit.value(),
+                index_existing_on_startup_only=self.index_existing_on_startup_only.isChecked(),
             ),
         )
 

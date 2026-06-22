@@ -78,6 +78,8 @@ Configure image upload behavior:
 - Batch interval
 - Retry count
 - Compression mode
+- Stage/copy limit per scan cycle
+- Optional index-only startup mode for large historical image trees
 
 ### 4.2 Fields
 
@@ -87,6 +89,8 @@ Configure image upload behavior:
 | Interval (sec) | Upload frequency in seconds | 1 |
 | Retry Count | Maximum retry attempts | 5 |
 | Compression | `jpeg`, `webp`, or `none` | `webp` |
+| Stage/Copy Limit | Maximum number of files queued for staging per scan cycle | 100 |
+| Index Existing Only On Startup | On first startup, index existing files without backfilling old images | `false` |
 
 ### 4.3 Example UI
 
@@ -95,9 +99,17 @@ Batch Size:      [ 20 ]
 Interval(sec):   [ 1  ]
 Retry Count:     [ 5  ]
 Compression:     [ WebP ]
+Stage/Copy Limit:[ 100 ]
+Index Existing:  [ Disabled ]
 
 [ Save Settings ]
 ```
+
+### 4.4 Large Backlog Guidance
+
+- For machines with a very large existing image tree, reduce `Stage/Copy Limit` to avoid heavy startup disk IO
+- Enable `Index Existing Only On Startup` when deployment should start from newly created images only
+- The index-only option is intended for first startup before `source-index.json` exists
 
 ---
 

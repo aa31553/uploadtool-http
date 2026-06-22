@@ -4,9 +4,10 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
+from queue import Empty, Queue
 
 from machine_client.config import AppConfig
-from machine_client.disk_queue import DiskQueue
+from machine_client.disk_queue import DiskQueue, ScanCandidate
 from machine_client.status import ClientStatus
 from machine_client.transport import AuthResult, ConnectionTestResult, ServerClient
 from machine_client.validation import validate_config
@@ -32,9 +33,15 @@ class AgentService:
         self._auth_employee_id = ""
         self._auth_role = ""
         self._last_disk_usage_percent = 0
-        self._worker = threading.Thread(target=self._run_loop, daemon=True)
+        self._last_buffer_count = self._disk_queue.stats()["buffer_images"]
+        self._copy_queue: Queue[ScanCandidate] = Queue()
+        self._scan_worker = threading.Thread(target=self._scan_loop, daemon=True)
+        self._copy_worker = threading.Thread(target=self._copy_loop, daemon=True)
+        self._batch_worker = threading.Thread(target=self._batch_loop, daemon=True)
         self._log("INFO", "Agent initialized")
-        self._worker.start()
+        self._scan_worker.start()
+        self._copy_worker.start()
+        self._batch_worker.start()
 
     def snapshot(self) -> ClientStatus:
         with self._lock:
@@ -146,7 +153,9 @@ class AgentService:
             self._config = config
             self._disk_queue = DiskQueue(config)
             self._server_client = ServerClient(config)
+            self._copy_queue = Queue()
             self._test_connection_ok = False
+            self._last_buffer_count = self._disk_queue.stats()["buffer_images"]
         from machine_client.config import save_config
 
         save_config(self._config_path, config)
@@ -155,75 +164,132 @@ class AgentService:
 
     def stop(self) -> None:
         self._stop_event.set()
-        self._worker.join(timeout=2)
+        self._scan_worker.join(timeout=2)
+        self._copy_worker.join(timeout=2)
+        self._batch_worker.join(timeout=2)
 
-    def _run_loop(self) -> None:
-        previous_buffer = self._disk_queue.stats()["buffer_images"]
+    def _scan_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                with self._lock:
+                    disk_queue = self._disk_queue
+                    config = self._config
+                    copy_queue = self._copy_queue
+
+                if not self._scan_allowed(config, disk_queue):
+                    time.sleep(1)
+                    continue
+
+                candidates, indexed_only = disk_queue.scan_for_candidates(max_candidates=config.upload.stage_copy_limit_per_cycle)
+                for candidate in candidates:
+                    copy_queue.put(candidate)
+                if indexed_only:
+                    self._log("INFO", f"Indexed {indexed_only} existing image(s) without backfill")
+                if candidates:
+                    self._log("INFO", f"Queued {len(candidates)} image(s) for staging")
+                self._update_queue_growth(disk_queue)
+            except Exception as exc:  # noqa: BLE001
+                self._log("ERROR", f"Scan loop error: {exc}")
+            time.sleep(1)
+
+    def _copy_loop(self) -> None:
         while not self._stop_event.is_set():
             with self._lock:
                 disk_queue = self._disk_queue
-                server_client = self._server_client
                 config = self._config
+                copy_queue = self._copy_queue
 
-            staged = disk_queue.stage_new_images()
-            stats = disk_queue.stats()
-            self._last_disk_usage_percent = stats["disk_usage_percent"]
-            if self._last_disk_usage_percent >= 90:
-                with self._lock:
-                    self._message = "CRITICAL BUFFER PRESSURE"
-                    self._last_error = "E101 buffer disk above 90%; clear space or adjust cleanup"
-                self._log("ERROR", "Buffer disk above 90%; staging paused")
-                time.sleep(max(config.upload.interval_sec, 1))
+            try:
+                candidate = copy_queue.get(timeout=0.5)
+            except Empty:
                 continue
-            if self._last_disk_usage_percent >= config.storage.max_usage_percent:
-                with self._lock:
-                    self._message = "BUFFER WARNING"
-                    self._last_error = f"E102 buffer disk above {config.storage.max_usage_percent}%"
-                self._log("WARN", "Buffer disk above configured threshold; staging paused")
-            elif staged:
-                self._log("INFO", f"Staged {staged} image(s) from image root")
 
-            created = disk_queue.maybe_build_batch()
-            if created is not None:
-                self._log("INFO", f"Built batch {created.batch_id} with {created.image_count} image(s)")
+            if not self._scan_allowed(config, disk_queue):
+                copy_queue.put(candidate)
+                time.sleep(1)
+                continue
 
-            batch = disk_queue.next_ready_batch()
-            if batch is not None:
-                started = time.perf_counter()
-                uploaded, _, detail = server_client.upload_batch(
-                    batch.zip_path,
-                    batch.checksum_sha256,
-                    batch.idempotency_key,
-                )
-                latency_ms = int((time.perf_counter() - started) * 1000)
+            try:
+                if disk_queue.stage_candidate(candidate):
+                    self._log("INFO", f"Staged {candidate.relative_path}")
+                self._update_queue_growth(disk_queue)
+            except Exception as exc:  # noqa: BLE001
+                self._log("ERROR", f"Copy loop error for {candidate.relative_path}: {exc}")
+
+    def _batch_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
                 with self._lock:
-                    self._last_latency_ms = latency_ms
-                if uploaded:
-                    disk_queue.mark_uploaded(batch)
+                    disk_queue = self._disk_queue
+                    server_client = self._server_client
+                    config = self._config
+
+                created = disk_queue.maybe_build_batch()
+                if created is not None:
+                    self._log("INFO", f"Built batch {created.batch_id} with {created.image_count} image(s)")
+
+                batch = disk_queue.next_ready_batch()
+                if batch is not None:
+                    started = time.perf_counter()
+                    uploaded, _, detail = server_client.upload_batch(
+                        batch.zip_path,
+                        batch.checksum_sha256,
+                        batch.idempotency_key,
+                    )
+                    latency_ms = int((time.perf_counter() - started) * 1000)
                     with self._lock:
-                        self._success_count += 1
-                        self._message = "ONLINE"
-                        self._last_error = ""
-                    self._log("INFO", f"Uploaded {batch.batch_id} in {latency_ms} ms")
+                        self._last_latency_ms = latency_ms
+                    if uploaded:
+                        disk_queue.mark_uploaded(batch)
+                        with self._lock:
+                            self._success_count += 1
+                            self._message = "ONLINE"
+                            self._last_error = ""
+                        self._log("INFO", f"Uploaded {batch.batch_id} in {latency_ms} ms")
+                    else:
+                        disk_queue.mark_failed(batch)
+                        with self._lock:
+                            self._failure_count += 1
+                            self._message = "OFFLINE MODE"
+                            self._last_error = detail
+                        self._log("ERROR", f"Upload failed for {batch.batch_id} attempt {batch.attempts + 1}: {detail}")
                 else:
-                    disk_queue.mark_failed(batch)
                     with self._lock:
-                        self._failure_count += 1
-                        self._message = "OFFLINE MODE"
-                        self._last_error = detail
-                    self._log("ERROR", f"Upload failed for {batch.batch_id} attempt {batch.attempts + 1}: {detail}")
-            else:
-                with self._lock:
-                    if self._failure_count == 0:
-                        self._message = "IDLE"
+                        if self._failure_count == 0 and self._disk_queue.stats()["buffer_images"] == 0:
+                            self._message = "IDLE"
 
-            current_buffer = disk_queue.stats()["buffer_images"]
-            with self._lock:
-                self._queue_growth = float(current_buffer - previous_buffer)
-            previous_buffer = current_buffer
-
-            self._cleanup_sent_batches(config)
+                self._update_queue_growth(disk_queue)
+                self._cleanup_sent_batches(config)
+            except Exception as exc:  # noqa: BLE001
+                self._log("ERROR", f"Batch loop error: {exc}")
             time.sleep(max(config.upload.interval_sec, 1))
+
+    def _scan_allowed(self, config: AppConfig, disk_queue: DiskQueue) -> bool:
+        stats = disk_queue.stats()
+        disk_usage = stats["disk_usage_percent"]
+        with self._lock:
+            self._last_disk_usage_percent = disk_usage
+        if disk_usage >= 90:
+            with self._lock:
+                self._message = "CRITICAL BUFFER PRESSURE"
+                self._last_error = "E101 buffer disk above 90%; clear space or adjust cleanup"
+            return False
+        if disk_usage >= config.storage.max_usage_percent:
+            with self._lock:
+                self._message = "BUFFER WARNING"
+                self._last_error = f"E102 buffer disk above {config.storage.max_usage_percent}%"
+            return False
+        with self._lock:
+            if self._message in {"CRITICAL BUFFER PRESSURE", "BUFFER WARNING"}:
+                self._message = "IDLE"
+                self._last_error = ""
+        return True
+
+    def _update_queue_growth(self, disk_queue: DiskQueue) -> None:
+        current_buffer = disk_queue.stats()["buffer_images"]
+        with self._lock:
+            self._queue_growth = float(current_buffer - self._last_buffer_count)
+            self._last_buffer_count = current_buffer
 
     def _cleanup_sent_batches(self, config: AppConfig) -> None:
         sent_dir = Path(config.storage.buffer_path) / "sent"

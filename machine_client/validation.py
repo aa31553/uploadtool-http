@@ -49,6 +49,9 @@ def validate_config(config: AppConfig) -> list[str]:
     if config.upload.timeout_sec <= 0:
         errors.append("Timeout must be greater than zero")
 
+    if config.upload.stage_copy_limit_per_cycle <= 0:
+        errors.append("Stage/copy limit per cycle must be greater than zero")
+
     return errors
 
 

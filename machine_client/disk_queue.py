@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import threading
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -26,6 +27,16 @@ class BatchRecord:
     idempotency_key: str
 
 
+@dataclass
+class ScanCandidate:
+    source_path: Path
+    source_key: str
+    relative_path: str
+    source_signature: str
+    staged_relpath: str
+    scan_unit: str
+
+
 class DiskQueue:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
@@ -39,8 +50,11 @@ class DiskQueue:
         self._source_index_path = self._root / "source-index.json"
         self._directory_index_path = self._root / "directory-index.json"
         self._staged_index_path = self._root / "staged-index.json"
+        self._lock = threading.RLock()
         self._ensure_directories()
+        self._startup_index_only_active = bool(config.upload.index_existing_on_startup_only) and not self._source_index_path.exists()
         self.recover_inflight()
+        self._stats_cache = self._initialize_stats()
 
     def _ensure_directories(self) -> None:
         for path in [
@@ -54,85 +68,156 @@ class DiskQueue:
         ]:
             path.mkdir(parents=True, exist_ok=True)
 
-    def stage_new_images(self, min_age_seconds: int = 2) -> int:
+    def scan_for_candidates(self, min_age_seconds: int = 2, max_candidates: int | None = None) -> tuple[list[ScanCandidate], int]:
         image_root = Path(self._config.storage.image_root)
         if not image_root.exists():
-            return 0
+            return [], 0
+
         excluded_roots = self._excluded_scan_roots(image_root)
-
-        source_index = self._load_source_index()
-        directory_index = self._load_directory_index()
-        staged_index = self._load_staged_index()
         now = datetime.now(timezone.utc).timestamp()
-        copied = 0
-        scan_roots = self._collect_scan_roots(image_root)
-        selected_roots, next_cursor = self._select_scan_roots(scan_roots, directory_index)
+        limit = max_candidates if max_candidates is not None else self._config.upload.stage_copy_limit_per_cycle
+        candidates: list[ScanCandidate] = []
+        indexed_only = 0
 
-        for root in selected_roots:
-            for path in self._iter_scan_root_files(root):
-                if self._is_under_any(path, excluded_roots):
-                    continue
-                if path.suffix.lower() not in IMAGE_EXTENSIONS:
-                    continue
-                if now - path.stat().st_mtime < min_age_seconds:
-                    continue
+        with self._lock:
+            source_index = self._load_source_index_unlocked()
+            directory_index = self._load_directory_index_unlocked()
+            scan_roots = self._collect_scan_roots(image_root)
+            selected_roots, next_cursor = self._select_scan_roots(scan_roots, directory_index)
+            reached_limit = False
 
-                source_key = str(path.resolve())
-                relative_path = str(path.relative_to(image_root).as_posix())
-                source_signature = f"{path.stat().st_mtime_ns}:{path.stat().st_size}"
-                indexed = source_index.get(source_key, {})
-                last_signature = str(indexed.get("last_signature", ""))
-                if last_signature == source_signature:
-                    continue
+            for root in selected_roots:
+                for path in self._iter_scan_root_files(root):
+                    if self._is_under_any(path, excluded_roots):
+                        continue
+                    if path.suffix.lower() not in IMAGE_EXTENSIONS:
+                        continue
+                    try:
+                        stat = path.stat()
+                    except FileNotFoundError:
+                        continue
+                    if now - stat.st_mtime < min_age_seconds:
+                        continue
 
-                staged_relpath = self._build_staged_relpath(Path(relative_path), source_signature)
-                destination = self._staged_dir / staged_relpath
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(path, destination)
-                staged_index[staged_relpath] = {
-                    "staged_relpath": staged_relpath,
-                    "relative_path": relative_path,
-                    "source_key": source_key,
-                    "source_signature": source_signature,
-                    "staged_at": datetime.now(timezone.utc).isoformat(),
-                    "scan_unit": root["key"],
+                    source_key = str(path.resolve())
+                    relative_path = str(path.relative_to(image_root).as_posix())
+                    source_signature = f"{stat.st_mtime_ns}:{stat.st_size}"
+                    indexed = source_index.get(source_key, {})
+                    last_signature = str(indexed.get("last_signature", ""))
+                    pending_signature = str(indexed.get("pending_signature", ""))
+                    if last_signature == source_signature or pending_signature == source_signature:
+                        continue
+
+                    if self._startup_index_only_active:
+                        source_index[source_key] = {
+                            "last_signature": source_signature,
+                            "relative_path": relative_path,
+                            "last_staged_relpath": str(indexed.get("last_staged_relpath", "")),
+                            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        indexed_only += 1
+                        continue
+
+                    staged_relpath = self._build_staged_relpath(Path(relative_path), source_signature)
+                    source_index[source_key] = {
+                        "last_signature": last_signature,
+                        "pending_signature": source_signature,
+                        "relative_path": relative_path,
+                        "last_staged_relpath": staged_relpath,
+                        "last_seen_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    candidates.append(
+                        ScanCandidate(
+                            source_path=path,
+                            source_key=source_key,
+                            relative_path=relative_path,
+                            source_signature=source_signature,
+                            staged_relpath=staged_relpath,
+                            scan_unit=str(root["key"]),
+                        )
+                    )
+                    if len(candidates) >= limit:
+                        reached_limit = True
+                        break
+
+                directory_index["roots"][root["key"]] = {
+                    "kind": root["kind"],
+                    "signature": root["signature"],
+                    "last_scanned_at": datetime.now(timezone.utc).isoformat(),
                 }
-                source_index[source_key] = {
-                    "last_signature": source_signature,
-                    "relative_path": relative_path,
-                    "last_staged_relpath": staged_relpath,
-                    "last_seen_at": datetime.now(timezone.utc).isoformat(),
-                }
-                copied += 1
+                if reached_limit:
+                    break
 
-            directory_index["roots"][root["key"]] = {
-                "kind": root["kind"],
-                "signature": root["signature"],
-                "last_scanned_at": datetime.now(timezone.utc).isoformat(),
+            directory_index["state"]["next_root_index"] = next_cursor
+            self._prune_directory_index(directory_index, scan_roots)
+            if self._startup_index_only_active and self._startup_index_only_complete(directory_index, scan_roots):
+                self._startup_index_only_active = False
+                directory_index["state"]["startup_index_only_completed_at"] = datetime.now(timezone.utc).isoformat()
+            self._save_source_index_unlocked(source_index)
+            self._save_directory_index_unlocked(directory_index)
+
+        return candidates, indexed_only
+
+    def stage_candidate(self, candidate: ScanCandidate) -> bool:
+        try:
+            stat = candidate.source_path.stat()
+        except FileNotFoundError:
+            self._clear_pending_signature(candidate.source_key, candidate.source_signature)
+            return False
+
+        current_signature = f"{stat.st_mtime_ns}:{stat.st_size}"
+        if current_signature != candidate.source_signature:
+            self._clear_pending_signature(candidate.source_key, candidate.source_signature)
+            return False
+
+        destination = self._staged_dir / candidate.staged_relpath
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(candidate.source_path, destination)
+
+        with self._lock:
+            staged_index = self._load_staged_index_unlocked()
+            source_index = self._load_source_index_unlocked()
+            was_present = candidate.staged_relpath in staged_index
+            staged_index[candidate.staged_relpath] = {
+                "staged_relpath": candidate.staged_relpath,
+                "relative_path": candidate.relative_path,
+                "source_key": candidate.source_key,
+                "source_signature": candidate.source_signature,
+                "staged_at": datetime.now(timezone.utc).isoformat(),
+                "scan_unit": candidate.scan_unit,
             }
-
-        directory_index["state"]["next_root_index"] = next_cursor
-        self._prune_directory_index(directory_index, scan_roots)
-        self._save_source_index(source_index)
-        self._save_staged_index(staged_index)
-        self._save_directory_index(directory_index)
-        return copied
+            source_index[candidate.source_key] = {
+                "last_signature": candidate.source_signature,
+                "relative_path": candidate.relative_path,
+                "last_staged_relpath": candidate.staged_relpath,
+                "last_seen_at": datetime.now(timezone.utc).isoformat(),
+            }
+            self._save_staged_index_unlocked(staged_index)
+            self._save_source_index_unlocked(source_index)
+            if not was_present:
+                self._stats_cache["staged_images"] += 1
+        return True
 
     def maybe_build_batch(self) -> BatchRecord | None:
-        staged_index = self._load_staged_index()
-        entries = self._ordered_staged_entries(staged_index)
-        if not entries:
-            return None
-
-        selected = self._select_batch_entries(entries)
-        if len(selected) < self._config.upload.batch_size:
-            oldest_age = datetime.now(timezone.utc).timestamp() - self._staged_entry_timestamp(selected[0])
-            if oldest_age < self._config.upload.interval_sec:
+        with self._lock:
+            if self._stats_cache["ready_batches"] > 0 or self._stats_cache["inflight_batches"] > 0:
+                return None
+            staged_index = self._load_staged_index_unlocked()
+            entries = self._ordered_staged_entries(staged_index)
+            if not entries:
                 return None
 
-        batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-        zip_path = self._ready_dir / f"{batch_id}.zip"
-        manifest_path = self._manifests_dir / f"{batch_id}.json"
+            selected = self._select_batch_entries(entries)
+            if not selected:
+                return None
+            if len(selected) < self._config.upload.batch_size:
+                oldest_age = datetime.now(timezone.utc).timestamp() - self._staged_entry_timestamp(selected[0])
+                if oldest_age < self._config.upload.interval_sec:
+                    return None
+
+            batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+            zip_path = self._ready_dir / f"{batch_id}.zip"
+            manifest_path = self._manifests_dir / f"{batch_id}.json"
 
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for item in selected:
@@ -163,6 +248,9 @@ class DiskQueue:
             "idempotency_key": idempotency_key,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        with self._lock:
+            self._stats_cache["ready_batches"] += 1
         return BatchRecord(
             batch_id=batch_id,
             zip_path=zip_path,
@@ -174,13 +262,16 @@ class DiskQueue:
         )
 
     def next_ready_batch(self) -> BatchRecord | None:
-        ready_files = sorted(self._ready_dir.glob("*.zip"))
-        if not ready_files:
-            return None
+        with self._lock:
+            ready_files = sorted(self._ready_dir.glob("*.zip"))
+            if not ready_files:
+                return None
 
-        zip_path = ready_files[0]
-        inflight_path = self._inflight_dir / zip_path.name
-        zip_path.replace(inflight_path)
+            zip_path = ready_files[0]
+            inflight_path = self._inflight_dir / zip_path.name
+            zip_path.replace(inflight_path)
+            self._stats_cache["ready_batches"] = max(0, self._stats_cache["ready_batches"] - 1)
+            self._stats_cache["inflight_batches"] += 1
 
         batch_id = inflight_path.stem
         manifest_path = self._manifests_dir / f"{batch_id}.json"
@@ -197,19 +288,24 @@ class DiskQueue:
 
     def mark_uploaded(self, batch: BatchRecord) -> None:
         manifest = json.loads(batch.manifest_path.read_text(encoding="utf-8"))
-        staged_index = self._load_staged_index()
-        for image in manifest["images"]:
-            staged_relpath = str(image.get("staged_relpath", image if isinstance(image, str) else image.get("name", "")))
-            staged_path = self._staged_dir / staged_relpath
-            if staged_path.exists():
-                staged_path.unlink()
-                self._cleanup_empty_staged_dirs(staged_path.parent)
-            staged_index.pop(staged_relpath, None)
+        removed = 0
+        with self._lock:
+            staged_index = self._load_staged_index_unlocked()
+            for image in manifest["images"]:
+                staged_relpath = str(image.get("staged_relpath", image if isinstance(image, str) else image.get("name", "")))
+                staged_path = self._staged_dir / staged_relpath
+                if staged_path.exists():
+                    staged_path.unlink()
+                    self._cleanup_empty_staged_dirs(staged_path.parent)
+                if staged_index.pop(staged_relpath, None) is not None:
+                    removed += 1
 
-        sent_path = self._sent_dir / batch.zip_path.name
-        batch.zip_path.replace(sent_path)
-        batch.manifest_path.unlink(missing_ok=True)
-        self._save_staged_index(staged_index)
+            sent_path = self._sent_dir / batch.zip_path.name
+            batch.zip_path.replace(sent_path)
+            batch.manifest_path.unlink(missing_ok=True)
+            self._save_staged_index_unlocked(staged_index)
+            self._stats_cache["staged_images"] = max(0, self._stats_cache["staged_images"] - removed)
+            self._stats_cache["inflight_batches"] = max(0, self._stats_cache["inflight_batches"] - 1)
 
     def mark_failed(self, batch: BatchRecord) -> None:
         manifest = json.loads(batch.manifest_path.read_text(encoding="utf-8"))
@@ -221,21 +317,20 @@ class DiskQueue:
         if batch.zip_path.exists():
             batch.zip_path.replace(target_path)
 
+        with self._lock:
+            self._stats_cache["inflight_batches"] = max(0, self._stats_cache["inflight_batches"] - 1)
+            if target_dir == self._ready_dir:
+                self._stats_cache["ready_batches"] += 1
+
     def stats(self) -> dict[str, int]:
-        staged_images = len([path for path in self._staged_dir.rglob("*") if path.is_file()])
-        ready_batches = len(list(self._ready_dir.glob("*.zip")))
-        inflight_batches = len(list(self._inflight_dir.glob("*.zip")))
+        with self._lock:
+            cached = dict(self._stats_cache)
         buffer_capacity = max(1000, self._config.upload.batch_size * 50)
         total, used, _free = shutil.disk_usage(self._root)
-        disk_usage_percent = int((used / total) * 100) if total else 0
-        return {
-            "staged_images": staged_images,
-            "ready_batches": ready_batches,
-            "inflight_batches": inflight_batches,
-            "buffer_images": staged_images,
-            "buffer_capacity": buffer_capacity,
-            "disk_usage_percent": disk_usage_percent,
-        }
+        cached["buffer_capacity"] = buffer_capacity
+        cached["buffer_images"] = cached["staged_images"]
+        cached["disk_usage_percent"] = int((used / total) * 100) if total else 0
+        return cached
 
     def recover_inflight(self) -> int:
         recovered = 0
@@ -245,7 +340,29 @@ class DiskQueue:
             recovered += 1
         return recovered
 
-    def _load_source_index(self) -> dict[str, dict[str, object]]:
+    def _initialize_stats(self) -> dict[str, int]:
+        with self._lock:
+            staged_index = self._load_staged_index_unlocked()
+            self._save_staged_index_unlocked(staged_index)
+        return {
+            "staged_images": len(staged_index),
+            "ready_batches": len(list(self._ready_dir.glob("*.zip"))),
+            "inflight_batches": len(list(self._inflight_dir.glob("*.zip"))),
+        }
+
+    def _clear_pending_signature(self, source_key: str, signature: str) -> None:
+        with self._lock:
+            source_index = self._load_source_index_unlocked()
+            indexed = source_index.get(source_key)
+            if indexed is None:
+                return
+            if str(indexed.get("pending_signature", "")) == signature:
+                indexed.pop("pending_signature", None)
+                indexed["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+                source_index[source_key] = indexed
+                self._save_source_index_unlocked(source_index)
+
+    def _load_source_index_unlocked(self) -> dict[str, dict[str, object]]:
         if not self._source_index_path.exists():
             return {}
         try:
@@ -260,10 +377,10 @@ class DiskQueue:
                 normalized[str(key)] = value
         return normalized
 
-    def _save_source_index(self, source_index: dict[str, dict[str, object]]) -> None:
+    def _save_source_index_unlocked(self, source_index: dict[str, dict[str, object]]) -> None:
         self._source_index_path.write_text(json.dumps(source_index, indent=2), encoding="utf-8")
 
-    def _load_directory_index(self) -> dict[str, object]:
+    def _load_directory_index_unlocked(self) -> dict[str, object]:
         if not self._directory_index_path.exists():
             return {"state": {"next_root_index": 0}, "roots": {}}
         try:
@@ -277,10 +394,10 @@ class DiskQueue:
             "roots": roots if isinstance(roots, dict) else {},
         }
 
-    def _save_directory_index(self, directory_index: dict[str, object]) -> None:
+    def _save_directory_index_unlocked(self, directory_index: dict[str, object]) -> None:
         self._directory_index_path.write_text(json.dumps(directory_index, indent=2), encoding="utf-8")
 
-    def _load_staged_index(self) -> dict[str, dict[str, object]]:
+    def _load_staged_index_unlocked(self) -> dict[str, dict[str, object]]:
         if not self._staged_index_path.exists():
             return {}
         try:
@@ -297,7 +414,7 @@ class DiskQueue:
                 normalized[staged_relpath] = value
         return normalized
 
-    def _save_staged_index(self, staged_index: dict[str, dict[str, object]]) -> None:
+    def _save_staged_index_unlocked(self, staged_index: dict[str, dict[str, object]]) -> None:
         self._staged_index_path.write_text(json.dumps(staged_index, indent=2), encoding="utf-8")
 
     def _collect_scan_roots(self, image_root: Path) -> list[dict[str, object]]:
@@ -376,11 +493,26 @@ class DiskQueue:
                 next_cursor = start
         return selected, next_cursor
 
-    def _iter_scan_root_files(self, root: dict[str, object]) -> list[Path]:
+    def _iter_scan_root_files(self, root: dict[str, object]):
         path = Path(str(root["path"]))
         if root["kind"] == "direct_files":
-            return [item for item in sorted(path.iterdir()) if item.is_file()]
-        return [item for item in sorted(path.rglob("*")) if item.is_file()]
+            for item in sorted(path.iterdir()):
+                if item.is_file():
+                    yield item
+            return
+        for item in path.rglob("*"):
+            if item.is_file():
+                yield item
+
+    def _startup_index_only_complete(self, directory_index: dict[str, object], scan_roots: list[dict[str, object]]) -> bool:
+        if not scan_roots:
+            return True
+        roots = directory_index.get("roots", {}) if isinstance(directory_index, dict) else {}
+        for root in scan_roots:
+            current = roots.get(str(root["key"]), {})
+            if current.get("signature") != root["signature"]:
+                return False
+        return True
 
     def _excluded_scan_roots(self, image_root: Path) -> list[Path]:
         excluded: list[Path] = []

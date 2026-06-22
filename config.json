@@ -5,9 +5,6 @@
     "backup": "http://10.0.0.6:8000/upload",
     "token": "replace-me"
   },
-  "control": {
-    "base_url": "http://10.0.0.10:8100"
-  },
   "storage": {
     "image_root": "D:/MachineData/Images",
     "buffer_path": "D:/MachineData/Buffer",
@@ -21,7 +18,7 @@
     "retry": 5,
     "compression": "webp",
     "timeout_sec": 5,
-    "stage_copy_limit_per_cycle": 100,
-    "index_existing_on_startup_only": false
+    "stage_copy_limit_per_cycle": 20,
+    "index_existing_on_startup_only": true
   }
 }
