@@ -53,9 +53,9 @@ class ServerClient:
                 return AuthResult(
                     ok=True,
                     message=f"Logged in to {base_url}",
-                    token=payload.get("token"),
+                    token=payload.get("access_token") or payload.get("token"),
                     employee_id=str(user.get("employee_id", employee_id)),
-                    role=str(user.get("role", "user")),
+                    role=str(user.get("role", "operator")),
                 )
             except Exception as exc:  # noqa: BLE001
                 last_error = f"{base_url}: {exc}"
